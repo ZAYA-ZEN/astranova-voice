@@ -15,6 +15,7 @@
 <style>
   :root { --bg:#05060f; --card:#0f1124; --line:#262a4d; --txt:#eceaff; --mut:#9a98c3; --ok:#3ddc84; --bad:#ff5a7a; --acc:#9d7bff; --warn:#ffc96b; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html { background:#05060f; }
   html,body { margin:0; min-height:100%; background:radial-gradient(1200px 600px at 50% -10%, #1d1546 0%, #05060f 60%) fixed; color:var(--txt); font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", Tahoma, sans-serif; }
   body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
   .wrap { max-width:520px; margin:0 auto; padding:16px; }
@@ -46,6 +47,10 @@
   .meter > i { position:absolute; inset:0 auto 0 0; width:0; background:var(--ok); transition:width .05s; }
   .meter > b { position:absolute; top:-2px; bottom:-2px; width:2px; background:var(--warn); }
   input[type=range] { width:100%; }
+  select { width:100%; padding:10px; font-size:15px; border-radius:10px; border:1px solid var(--line); background:#0d1117; color:var(--txt); }
+  li[data-n] { cursor:pointer; }
+  li.pv { display:block; padding:4px 0 12px; }
+  li.pv label { margin:0 0 4px; }
   .seg { display:flex; background:#0d1117; border-radius:10px; padding:3px; }
   .seg button { flex:1; background:none; padding:9px; font-size:14px; }
   .seg button.sel { background:var(--line); }
@@ -137,14 +142,18 @@
       <input type="range" id="sens" min="1" max="100" value="60">
       <label>เพิ่มเสียงไมค์ <span class="hint" id="boostTxt">100%</span></label>
       <input type="range" id="boost" min="50" max="300" value="100">
+      <label>ไมโครโฟน <button class="link" id="btnRefreshDev" style="padding:0;font-size:12px">รีเฟรช</button></label>
+      <select id="selIn"><option value="">อัตโนมัติ</option></select>
+      <div id="rowOut"><label>ลำโพง / หูฟัง</label><select id="selOut"><option value="">อัตโนมัติ</option></select></div>
       <label style="display:flex;align-items:center;gap:8px;color:var(--txt)"><input type="checkbox" id="echo" style="width:20px;height:20px"> กันเสียงสะท้อน <span class="hint">(เปิดไว้ถ้าไม่ได้ใส่หูฟัง)</span></label>
       <label>เสียงลำโพงรวม <span class="hint" id="volTxt">100%</span></label>
       <input type="range" id="vol" min="0" max="200" value="100">
       <div class="hint" id="hotkeyHint"></div>
+      <div class="hint" id="codecTxt"></div>
     </div>
 
     <div class="card">
-      <b>คนที่อยู่ในระยะ</b>
+      <b>คนที่อยู่ในระยะ</b> <span class="hint">(แตะชื่อเพื่อปรับเสียงรายคน • 🧱 มีผนังกั้น • 🌊 ใต้น้ำ)</span>
       <ul id="nearby"><li class="hint">ไม่มีใครอยู่ใกล้</li></ul>
     </div>
 
@@ -154,6 +163,7 @@
   </section>
 </div>
 <script src="config.js"></script>
+<script src="codec.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

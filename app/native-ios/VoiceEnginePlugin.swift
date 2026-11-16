@@ -14,6 +14,7 @@ public class VoiceEnginePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "startAudio", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopAudio", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setOpts", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listDevices", returnType: CAPPluginReturnPromise),
     ]
 
     private let eng = AstraVoiceEngine.shared
@@ -50,6 +51,10 @@ public class VoiceEnginePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func listDevices(_ call: CAPPluginCall) {
+        call.resolve(eng.listDevices())
+    }
+
     @objc func stopAudio(_ call: CAPPluginCall) {
         DispatchQueue.main.async { self.eng.stopAudio(); call.resolve() }
     }
@@ -64,6 +69,13 @@ public class VoiceEnginePlugin: CAPPlugin, CAPBridgedPlugin {
         if let v = call.getDouble("boost") { eng.boost = Float(v) }
         if let v = call.getDouble("vol") { eng.vol = Float(v) }
         if let v = call.getBool("echoGate") { eng.echoGate = v }
+        if let v = call.getString("inputId"), v != eng.inputId { eng.inputId = v; DispatchQueue.main.async { self.eng.applyDevices() } }
+        if let v = call.getString("outputId"), v != eng.outputId { eng.outputId = v; DispatchQueue.main.async { self.eng.applyDevices() } }
+        if let m = call.getObject("spkVol") {
+            var d: [Int: Float] = [:]
+            for (k, v) in m { if let i = Int(k), let n = v as? NSNumber { d[i] = n.floatValue } }
+            eng.spkVolLock.lock(); eng.spkVol = d; eng.spkVolLock.unlock()
+        }
         DispatchQueue.main.async { self.eng.applyVolume() }
         call.resolve()
     }
@@ -81,6 +93,10 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
     var active = false, muted = false, deaf = false, ptt = false, pttDown = false
     var threshold: Float = 0.02, boost: Float = 1, vol: Float = 1
     var echoGate = true
+    var inputId = "", outputId = ""
+    var spkVol: [Int: Float] = [:]
+    let spkVolLock = NSLock()
+    private let adpcmEnc = Adpcm()
     private var remoteLvl: Float = 0
     private var remoteUntil: TimeInterval = 0
 
@@ -100,7 +116,12 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
     private var converter: AVAudioConverter?
     private var monoInFmt: AVAudioFormat?
     private var pending: [Float] = []
-    private var prevFrame: Data?
+    private var prevFrame: [Int16]?
+    private func packAdpcm(_ pcm: [Int16]) -> Data {
+        var out = Data([1])
+        out.append(contentsOf: adpcmEnc.encode(pcm))
+        return out
+    }
     private var hangUntil: TimeInterval = 0
     private var transmitting = false
     private var lastLevel: TimeInterval = 0
@@ -108,6 +129,8 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
 
     private final class Spk { let node = AVAudioPlayerNode(); var queued = 0; var last = Date() }
     private var speakers: [Int: Spk] = [:]
+    private var filters: [Int: (Float, Float)] = [:]
+    private let filterLock = NSLock()
     private let spkLock = NSLock()
 
     private func ev(_ type: String, _ extra: [String: Any] = [:]) {
@@ -117,7 +140,12 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
     // MARK: WebSocket
     func connect(url: URL, hello: String) {
         opQueue.addOperation {
-            self.url = url; self.hello = hello; self.want = true
+            self.url = url; self.want = true
+            // บอกเซิร์ฟเวอร์ว่าเครื่องนี้ใช้ ADPCM (บีบอัด 4 เท่า)
+            if let d = hello.data(using: .utf8), var obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
+                obj["codecs"] = ["enc": ["adpcm"], "dec": ["adpcm"]]
+                if let nd = try? JSONSerialization.data(withJSONObject: obj), let ns = String(data: nd, encoding: .utf8) { self.hello = ns } else { self.hello = hello }
+            } else { self.hello = hello }
             self.openSocket()
         }
     }
@@ -138,7 +166,9 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
             switch result {
             case .success(let msg):
                 switch msg {
-                case .string(let s): self.ev("msg", ["data": s])
+                case .string(let s):
+                    if s.hasPrefix("{\"t\":\"enc\"") { self.ev("codec", ["name": "ADPCM"]) }
+                    else { self.ev("msg", ["data": s]) }
                 case .data(let d): self.onAudio(d)
                 @unknown default: break
                 }
@@ -230,6 +260,7 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
         try engine.start()
         running = true
         applyVolume()
+        applyDevices()
 
         let nc = NotificationCenter.default
         nc.removeObserver(self)
@@ -249,6 +280,21 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
         spkLock.unlock()
         NotificationCenter.default.removeObserver(self)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    // MARK: อุปกรณ์เสียง
+    func listDevices() -> [String: Any] {
+        let s = AVAudioSession.sharedInstance()
+        let ins = (s.availableInputs ?? []).map { ["id": $0.uid, "name": $0.portName] }
+        let outs: [[String: String]] = [["id": "speaker", "name": "ลำโพงเครื่อง"], ["id": "receiver", "name": "ลำโพงสนทนา / หูฟังที่เสียบ"]]
+        return ["inputs": ins, "outputs": outs]
+    }
+    func applyDevices() {
+        let s = AVAudioSession.sharedInstance()
+        if inputId.isEmpty { try? s.setPreferredInput(nil) }
+        else if let port = s.availableInputs?.first(where: { $0.uid == inputId }) { try? s.setPreferredInput(port) }
+        if outputId == "speaker" { try? s.overrideOutputAudioPort(.speaker) }
+        else { try? s.overrideOutputAudioPort(.none) }
     }
 
     func applyVolume() {
@@ -298,16 +344,13 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
 
     private func processFrame(_ f: [Float]) {
         var sum: Float = 0
-        var data = Data(count: f.count * 2)
+        var pcm = [Int16](repeating: 0, count: f.count)
         let b = boost
-        data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
-            let p = raw.bindMemory(to: Int16.self)
-            for i in 0..<f.count {
-                var v = f[i] * b
-                if v > 1 { v = 1 } else if v < -1 { v = -1 }
-                sum += v * v
-                p[i] = Int16(v * 32767).littleEndian
-            }
+        for i in 0..<f.count {
+            var v = f[i] * b
+            if v > 1 { v = 1 } else if v < -1 { v = -1 }
+            sum += v * v
+            pcm[i] = Int16(v * 32767)
         }
         let rms = sqrt(sum / Float(f.count))
         let now = Date().timeIntervalSince1970
@@ -323,11 +366,11 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
             }
         }
         if tx, let t = task {
-            if !transmitting, !ptt, let prev = prevFrame { t.send(.data(prev)) { _ in } }
-            t.send(.data(data)) { _ in }
+            if !transmitting, !ptt, let prev = prevFrame { t.send(.data(packAdpcm(prev))) { _ in } }
+            t.send(.data(packAdpcm(pcm))) { _ in }
         }
         transmitting = tx
-        prevFrame = data
+        prevFrame = pcm
         if now - lastLevel > 0.1 {
             lastLevel = now
             ev("level", ["rms": rms, "tx": tx])
@@ -336,21 +379,39 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
 
     // เสียงจากคนอื่น: [u16 slot][u8 gain][i8 pan][PCM16...]
     private func onAudio(_ d: Data) {
-        guard running, !deaf, d.count >= 6 else { return }
+        guard running, !deaf, d.count >= 7 else { return }
         let bytes = [UInt8](d)
         let slot = Int(bytes[0]) | (Int(bytes[1]) << 8)
-        let gain = Float(bytes[2]) / 255
+        spkVolLock.lock(); let mult = spkVol[slot] ?? 1; spkVolLock.unlock()
+        let gain = Float(bytes[2]) / 255 * mult
         let pan = Float(Int8(bitPattern: bytes[3])) / 127
-        let n = (bytes.count - 4) / 2
-        guard let buf = AVAudioPCMBuffer(pcmFormat: fmt16, frameCapacity: AVAudioFrameCount(n)) else { return }
+        let cutoff = Float(bytes[4]) * 50
+        let codec = bytes[5]
+        let samples: [Int16]
+        if codec == 1 { samples = Adpcm.decode(bytes, offset: 6, count: AstraVoiceEngine.FRAME) }
+        else if codec == 0 {
+            let cnt = (bytes.count - 6) / 2
+            samples = (0..<cnt).map { Int16(bitPattern: UInt16(bytes[6 + 2 * $0]) | (UInt16(bytes[7 + 2 * $0]) << 8)) }
+        } else { return }
+        let n = samples.count
+        guard n > 0, let buf = AVAudioPCMBuffer(pcmFormat: fmt16, frameCapacity: AVAudioFrameCount(n)) else { return }
         let p = buf.floatChannelData![0]
+        // ตัวกรองเสียงทึบ (ผนัง/ใต้น้ำ): low-pass 2 ชั้น เก็บสถานะต่อคน
+        filterLock.lock()
+        var st = filters[slot] ?? (0, 0)
+        let a: Float = cutoff > 0 ? 1 - exp(-2 * Float.pi * cutoff / Float(AstraVoiceEngine.RATE)) : 1
+        let boostOut: Float = gain > 1 ? gain : 1 // ปรับรายคนเกิน 100% → ขยายที่ตัวเสียง
         var sq: Float = 0
         for i in 0..<n {
-            let s = Int16(bitPattern: UInt16(bytes[4 + 2 * i]) | (UInt16(bytes[5 + 2 * i]) << 8))
-            let v = Float(s) / 32768
-            p[i] = v; sq += v * v
+            let x = Float(samples[i]) / 32768
+            st.0 += a * (x - st.0)
+            st.1 += a * (st.0 - st.1)
+            let y = max(-1, min(1, st.1 * boostOut))
+            p[i] = y; sq += y * y
         }
-        let lvl = sqrt(sq / Float(max(n, 1))) * gain * vol
+        filters[slot] = st
+        filterLock.unlock()
+        let lvl = sqrt(sq / Float(max(n, 1))) * min(1, gain) * vol
         let nowT = Date().timeIntervalSince1970
         remoteLvl = nowT < remoteUntil ? max(remoteLvl * 0.9, lvl) : lvl
         remoteUntil = nowT + 0.25
@@ -370,7 +431,7 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
             }
             let s = sp!
             self.spkLock.unlock()
-            s.node.volume = gain
+            s.node.volume = min(1, gain)
             s.node.pan = pan
             s.last = Date()
             if s.queued > 8 { return } // ดีเลย์สะสม → ทิ้งเฟรม

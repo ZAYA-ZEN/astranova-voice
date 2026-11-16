@@ -77,7 +77,7 @@ function buildPayload() {
       const l = p.location, r = p.getRotation();
       players.push({
         n: p.name, x: +l.x.toFixed(2), y: +l.y.toFixed(2), z: +l.z.toFixed(2),
-        d: p.dimension.id, yaw: +r.y.toFixed(1),
+        d: p.dimension.id, yaw: +r.y.toFixed(1), w: env.water.has(key(p.name)) ? 1 : 0,
       });
     } catch { /* ผู้เล่นกำลังโหลด */ }
   }
@@ -86,8 +86,64 @@ function buildPayload() {
     settings: { range: S.range, micEnabled: S.micEnabled, hearEnabled: S.hearEnabled },
     muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
     players,
+    occ: env.occ,
     announce: announceQueue,
   };
+}
+
+// ---------------- ใต้น้ำ + ผนังกั้นเสียง ----------------
+const env = { water: new Set(), occ: {} }; // occ: "a|b" -> 1 (บาง) / 2 (หนา)
+const PASSABLE = /(air|water|lava|grass|fern|flower|torch|sapling|vine|carpet|button|lever|sign|rail|bush|snow_layer|dandelion|poppy|tulip|orchid|allium|bluet|daisy|ladder|banner|pressure_plate|tripwire|redstone_wire|fire|light_block|structure_void|cobweb|kelp|seagrass|coral_fan|lantern|candle|frame|pointed_dripstone|scaffolding|glow_lichen|moss_carpet|petals|lily_pad|mushroom|wheat|carrots|potatoes|beetroot|sugar_cane|dead_bush|hanging_roots|spore_blossom|azalea_leaves_flowered)/;
+function solidAt(dim, x, y, z) {
+  try {
+    const b = dim.getBlock({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) });
+    if (!b || b.isAir || b.isLiquid) return false;
+    return !PASSABLE.test(b.typeId);
+  } catch { return false; }
+}
+function countWalls(dim, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+  const dist = Math.hypot(dx, dy, dz);
+  const steps = Math.ceil(dist / 0.5);
+  let count = 0, last = "";
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps, x = a.x + dx * t, y = a.y + dy * t, z = a.z + dz * t;
+    const k = Math.floor(x) + "," + Math.floor(y) + "," + Math.floor(z);
+    if (k === last) continue;
+    last = k;
+    if (solidAt(dim, x, y, z) && ++count >= 3) break;
+  }
+  return count >= 3 ? 2 : count >= 1 ? 1 : 0;
+}
+function updateEnv() {
+  const ps = world.getAllPlayers();
+  const water = new Set(), heads = [];
+  for (const p of ps) {
+    try {
+      const h = p.getHeadLocation();
+      const b = p.dimension.getBlock({ x: Math.floor(h.x), y: Math.floor(h.y), z: Math.floor(h.z) });
+      if (b && b.typeId.includes("water")) water.add(key(p.name));
+      heads.push({ k: key(p.name), d: p.dimension, h });
+    } catch { /* ignore */ }
+  }
+  const occ = {}, R = Math.min(S.range, 48);
+  for (let i = 0; i < heads.length; i++) for (let j = i + 1; j < heads.length; j++) {
+    const a = heads[i], b = heads[j];
+    if (a.d.id !== b.d.id || Math.hypot(a.h.x - b.h.x, a.h.y - b.h.y, a.h.z - b.h.z) > R) continue;
+    const lvl = countWalls(a.d, a.h, b.h);
+    if (lvl) occ[[a.k, b.k].sort().join("|")] = lvl;
+  }
+  env.water = water; env.occ = occ;
+  if (transport.mode === "world") {
+    for (const p of ps) { try { if (water.has(key(p.name))) p.addTag("astra_water"); else p.removeTag("astra_water"); } catch {} }
+    try {
+      const sb = world.scoreboard;
+      const obj = sb.getObjective("astra_occ") ?? sb.addObjective("astra_occ", "Astra Walls");
+      const keep = new Set(Object.keys(occ));
+      for (const pt of obj.getParticipants()) if (!keep.has(pt.displayName)) obj.removeParticipant(pt);
+      for (const [k, v] of Object.entries(occ)) obj.setScore(k, v);
+    } catch (e) { /* scoreboard not ready */ }
+  }
 }
 
 // ใช้โดย transport
@@ -416,6 +472,7 @@ export function startCore(t) {
     mirrorState();
     transport.start(core);
     system.runInterval(drawTalkingIcons, 2);
+    system.runInterval(updateEnv, 10);
     console.warn(`[MCVoice] เริ่มทำงาน (${transport.mode}) ระยะ ${S.range}`);
   });
 }

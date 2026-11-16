@@ -31,6 +31,8 @@ const key = (n) => String(n || "").trim().toLowerCase();
 const game = {
   settings: { range: 24, micEnabled: true, hearEnabled: true },
   muted: new Set(), deaf: new Set(), mega: new Set(), self: new Set(),
+  water: new Set(), // คนที่หัวอยู่ใต้น้ำ
+  occ: new Map(), // "a|b" -> 1 (มีผนังบาง) / 2 (ผนังหนา)
   players: new Map(), // key -> {n,x,y,z,d,yaw}
   lastSync: 0,
 };
@@ -62,7 +64,7 @@ function range() {
 function mix(speakerKey, listenerKey) {
   const s = game.players.get(speakerKey), l = game.players.get(listenerKey);
   if (!s || !l) return null;
-  if (game.mega.has(speakerKey)) return { gain: 1, pan: 0, dist: 0 };
+  if (game.mega.has(speakerKey)) return { gain: 1, pan: 0, dist: 0, lp: 0 };
   if (s.d !== l.d) return null;
   const R = range();
   if (R <= 0) return null;
@@ -78,7 +80,12 @@ function mix(speakerKey, listenerKey) {
   const h = Math.hypot(dx, dz);
   let pan = 0;
   if (h > 0.5) pan = ((dx * -Math.cos(yaw) + dz * -Math.sin(yaw)) / h) * 0.75;
-  return { gain, pan, dist };
+  // ผนังกั้น / ใต้น้ำ → เสียงทึบ (กรองเสียงแหลมออก) และเบาลง
+  let g = gain, lp = 0;
+  const occ = game.occ.get(speakerKey < listenerKey ? speakerKey + "|" + listenerKey : listenerKey + "|" + speakerKey) || 0;
+  if (occ >= 2) { g *= 0.45; lp = 800; } else if (occ === 1) { g *= 0.7; lp = 1600; }
+  if (game.water.has(speakerKey) || game.water.has(listenerKey)) { g *= 0.75; lp = lp ? Math.min(lp, 500) : 500; }
+  return { gain: g, pan, dist, lp };
 }
 
 // ---------- HTTP ----------
@@ -118,6 +125,8 @@ function applyGame(body) {
   game.settings = { range: Number(st.range) || 0, micEnabled: st.micEnabled !== false, hearEnabled: st.hearEnabled !== false };
   for (const k of ["muted", "deaf", "mega", "self"]) game[k] = new Set((body[k] || []).map(key));
   game.players = new Map((body.players || []).map((p) => [key(p.n), p]));
+  game.water = new Set((body.players || []).filter((p) => p.w).map((p) => key(p.n)).concat((body.water || []).map(key)));
+  game.occ = new Map(Object.entries(body.occ || {}).map(([k, v]) => [k.split("|").map(key).sort().join("|"), Number(v) || 0]));
   for (const a of body.announce || []) broadcastJSON({ t: "announce", text: String(a.text).slice(0, 300), by: a.by });
 
   const links = [];
@@ -189,7 +198,7 @@ server.on("upgrade", (req, socket, head) => {
 // เซิฟเวอร์สั่งคำสั่งผ่านการเชื่อมต่อนี้เพื่ออ่านตำแหน่งผู้เล่น และส่งข้อมูลกลับเข้าแอดออนด้วย /scriptevent
 // =====================================================================
 let mcSock = null, mcSeen = 0;
-const mcWorld = { names: [], cfg: null, flags: { muted: [], deaf: [], mega: [], self: [] }, pos: new Map() };
+const mcWorld = { names: [], cfg: null, flags: { muted: [], deaf: [], mega: [], self: [] }, pos: new Map(), water: [], occ: {} };
 const DIMS = ["minecraft:overworld", "minecraft:nether", "minecraft:the_end"];
 
 mcWss.on("connection", (ws, req) => {
@@ -225,6 +234,21 @@ mcWss.on("connection", (ws, req) => {
       const r = await cmd(`testfor @a[tag=${tag}]`);
       mcWorld.flags[k] = r && r.statusCode === 0 && Array.isArray(r.victim) ? r.victim : [];
     }
+    // ใต้น้ำ (แอดออนติด tag ให้)
+    const w = await cmd("testfor @a[tag=astra_water]");
+    mcWorld.water = w && w.statusCode === 0 && Array.isArray(w.victim) ? w.victim : [];
+    // ผนังกั้นระหว่างคู่ผู้เล่น (แอดออนเขียนลง scoreboard astra_occ ชื่อ "a|b")
+    const ps = [...mcWorld.pos.values()], occ = {}, R = range();
+    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+      const a = ps[i], b = ps[j];
+      if (a.d !== b.d || Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) > Math.min(R, 48)) continue;
+      const k = [key(a.n), key(b.n)].sort().join("|");
+      const r1 = await cmd(`scoreboard players test "${k}" astra_occ 1 *`);
+      if (!r1 || r1.statusCode !== 0) continue;
+      const r2 = await cmd(`scoreboard players test "${k}" astra_occ 2 *`);
+      occ[k] = r2 && r2.statusCode === 0 ? 2 : 1;
+    }
+    mcWorld.occ = occ;
     // ค่าตั้งจากแอดออน: astra_cfg = ระยะ*4 + ไมค์*2 + หู (ค้นหาแบบแบ่งครึ่ง)
     let lo = 0, hi = 4 * 101 - 1;
     const has = await cmd(`scoreboard players test astra_cfg astra ${lo} ${hi}`);
@@ -253,6 +277,8 @@ mcWss.on("connection", (ws, req) => {
     const reply = applyGame({
       settings: mcWorld.cfg || { range: cfg.defaultRange, micEnabled: true, hearEnabled: true },
       ...mcWorld.flags,
+      water: mcWorld.water,
+      occ: mcWorld.occ,
       players: [...mcWorld.pos.values()],
     });
     // ส่งข้อมูลเข้าแอดออน (ถ้าไม่ได้ลงแอดออนก็ไม่มีผลอะไร)
@@ -307,6 +333,11 @@ wss.on("connection", (ws, req) => {
       if (!/^[A-Za-z0-9 _-]{1,32}$/.test(name)) return sendJSON(c, { t: "error", msg: "ชื่อ Xbox ไม่ถูกต้อง" });
       c.name = game.players.get(key(name))?.n || name;
       c.key = key(name);
+      // ตัวบีบอัดเสียงที่เครื่องนี้รองรับ (ADPCM ใช้ได้ทุกเครื่อง, Opus บีบได้มากกว่า)
+      const caps = m.codecs || {};
+      c.encOpus = Array.isArray(caps.enc) && caps.enc.includes("opus");
+      c.decOpus = Array.isArray(caps.dec) && caps.dec.includes("opus");
+      c.legacy = !m.codecs; // แอปรุ่นเก่า (PCM ล้วน)
       if (m.token && (tokens[c.key] || []).includes(m.token)) return finishLink(c, false);
       if (!cfg.requireCode) {
         // ลิงก์ด้วยชื่อ Xbox อย่างเดียว: ถ้าอยู่ในเกมแล้วลิงก์ทันที ถ้ายังไม่เข้าเกม รอจนกว่าจะเข้า
@@ -336,23 +367,54 @@ wss.on("connection", (ws, req) => {
   ws.on("error", () => {});
 });
 
+// รูปแบบเสียง: 0 = PCM16 ดิบ, 1 = IMA-ADPCM (เล็กลง 4 เท่า), 2 = Opus (เล็กลง ~8-10 เท่า)
+const CODEC = { pcm: 0, adpcm: 1, opus: 2 };
+// คนพูด c ควรส่งรูปแบบไหนให้คนฟัง l
+function codecFor(c, l) {
+  if (l.legacy) return CODEC.pcm;
+  return c.encOpus && l.decOpus ? CODEC.opus : CODEC.adpcm;
+}
 function onAudio(c, data) {
-  // รูปแบบ: Int16 PCM 16kHz mono (ไม่เกิน 100ms)
-  if (data.length < 2 || data.length > SAMPLE_RATE * 2 * 0.1 + 2 || data.length % 2) return;
+  if (data.length < 2 || data.length > 8192) return;
+  let codec, payload;
+  if (c.legacy) { if (data.length % 2) return; codec = CODEC.pcm; payload = data; }
+  else { codec = data[0]; payload = data.subarray(1); if (codec > 2) return; }
   if (!canSpeak(c)) return;
   c.lastTalk = Date.now();
-  const header = Buffer.alloc(4);
+  const header = Buffer.alloc(6);
   header.writeUInt16LE(c.slot & 0xffff, 0);
+  header.writeUInt8(codec, 5);
   for (const l of clients) {
     if (l === c || !canHear(l)) continue;
+    const want = codecFor(c, l);
+    if (want !== codec && !(l.legacy && codec === CODEC.pcm)) continue;
     const m = mix(c.key, l.key);
     if (!m || m.gain <= 0.01) continue;
     if (l.ws.bufferedAmount > 256 * 1024) continue; // เน็ตคนฟังช้า ข้ามเฟรม
-    header.writeUInt8(Math.round(m.gain * 255), 2);
+    header.writeUInt8(Math.round(Math.min(1, m.gain) * 255), 2);
     header.writeInt8(Math.round(m.pan * 127), 3);
-    l.ws.send(Buffer.concat([header, data]), { binary: true });
+    header.writeUInt8(Math.min(255, Math.round((m.lp || 0) / 50)), 4);
+    if (l.legacy) { header.writeUInt8(0, 4); l.ws.send(Buffer.concat([header.subarray(0, 4), payload]), { binary: true }); }
+    else l.ws.send(Buffer.concat([header, payload]), { binary: true });
   }
 }
+
+// บอกคนพูดแต่ละคนว่าต้องส่งเสียงแบบไหนบ้าง (ตามคนฟังที่อยู่ในระยะ)
+function updateEncoders() {
+  for (const c of clients) {
+    if (!c.linked || c.legacy) continue;
+    const need = new Set();
+    for (const l of clients) {
+      if (l === c || !l.linked || l.legacy) continue;
+      if (game.players.has(c.key) && game.players.has(l.key) && !mix(c.key, l.key)) continue;
+      need.add(codecFor(c, l) === CODEC.opus ? "opus" : "adpcm");
+    }
+    if (!need.size) need.add(c.encOpus ? "opus" : "adpcm");
+    const list = [...need].sort().join(",");
+    if (list !== c.encList) { c.encList = list; sendJSON(c, { t: "enc", codecs: [...need] }); }
+  }
+}
+setInterval(updateEncoders, 500);
 
 // ส่งสถานะให้แอปทุก 0.5 วินาที
 setInterval(() => {
@@ -364,7 +426,7 @@ setInterval(() => {
     if (me) for (const o of clients) {
       if (o === c || !o.linked || !game.players.has(o.key)) continue;
       const m = mix(o.key, c.key);
-      if (m) nearby.push({ n: o.name, slot: o.slot, d: Math.round(m.dist), g: Math.round(m.gain * 100), talking: now - o.lastTalk < 400 && canSpeak(o) });
+      if (m) nearby.push({ n: o.name, slot: o.slot, d: Math.round(m.dist), g: Math.round(m.gain * 100), lp: m.lp || 0, talking: now - o.lastTalk < 400 && canSpeak(o) });
     }
     nearby.sort((a, b) => a.d - b.d);
     sendJSON(c, {

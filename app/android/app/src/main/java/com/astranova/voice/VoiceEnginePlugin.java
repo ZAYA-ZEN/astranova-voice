@@ -8,6 +8,7 @@ import android.os.Build;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -73,6 +74,11 @@ public class VoiceEnginePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void listDevices(PluginCall call) {
+        call.resolve(VoiceEngine.get().listDevices(getContext()));
+    }
+
+    @PluginMethod
     public void startBridge(PluginCall call) {
         try {
             McBridge.start(call.getString("url"), call.getInt("port", 19140));
@@ -102,6 +108,19 @@ public class VoiceEnginePlugin extends Plugin {
         if (call.hasOption("boost")) e.boost = call.getFloat("boost", 1f);
         if (call.hasOption("vol")) e.vol = call.getFloat("vol", 1f);
         if (call.hasOption("echoGate")) e.echoGate = call.getBoolean("echoGate", true);
+        boolean devChanged = false;
+        if (call.hasOption("inputId")) { String v = call.getString("inputId", ""); if (!v.equals(e.inputId)) { e.inputId = v; devChanged = true; } }
+        if (call.hasOption("outputId")) { String v = call.getString("outputId", ""); if (!v.equals(e.outputId)) { e.outputId = v; devChanged = true; } }
+        if (devChanged && e.isRunning()) e.applyDevices();
+        if (call.hasOption("spkVol")) {
+            JSObject m = call.getObject("spkVol", new JSObject());
+            e.spkVol.clear();
+            java.util.Iterator<String> it = m.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                try { e.spkVol.put(Integer.parseInt(k), (float) m.getDouble(k)); } catch (Exception ignored) {}
+            }
+        }
         if (wasMuted != e.muted && e.isRunning()) {
             try { getContext().startService(new Intent(getContext(), VoiceService.class).setAction(VoiceService.ACT_UPDATE)); } catch (Exception ignored) {}
         }

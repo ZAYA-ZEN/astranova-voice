@@ -50,6 +50,7 @@ function wsUrl(s) {
 // =====================================================================
 const engine = NATIVE ? nativeEngine() : webEngine();
 
+let nativeCodec = "";
 function nativeEngine() {
   VE.addListener("event", (ev) => {
     switch (ev.type) {
@@ -57,6 +58,7 @@ function nativeEngine() {
       case "close": onClose(); break;
       case "msg": try { onMsg(JSON.parse(ev.data)); } catch {} break;
       case "level": onLevel(ev.rms, ev.tx); break;
+      case "codec": nativeCodec = ev.name; break;
       case "mute": muted = !!ev.muted; store.set("muted", muted); sendState(); renderMic(); break; // กดจากแจ้งเตือน
       case "stopReq": wantConnected = false; linked = false; store.set("auto", false); show("scrConnect"); break;
       case "error": toast("<b>เสียงมีปัญหา</b><br>" + esc(ev.message), 8000); break;
@@ -73,33 +75,50 @@ function nativeEngine() {
     startAudio() { return VE.startAudio().catch((e) => toast("<b>ใช้ไมค์ไม่ได้</b><br>" + esc(e.message || e) + "<br>อนุญาตไมโครโฟนในตั้งค่าเครื่อง", 12000)); },
     stopAudio() { VE.stopAudio(); },
     setOpts(o) { VE.setOpts(o); },
+    async listDevices() { try { return await VE.listDevices(); } catch { return { inputs: [], outputs: [] }; } },
+    codecInfo: () => nativeCodec,
   };
 }
 
 function webEngine() {
+  const C = window.AstraCodec;
   let ws = null, url = null, hello = null, reconnectTimer = null;
-  let ctx = null, micStream = null, capNode = null, boostNode = null, master = null, audioBusy = null;
+  let ctx = null, micStream = null, micSrc = null, capNode = null, boostNode = null, master = null, audioBusy = null, outEl = null;
   const speakers = new Map();
   let opts = {}, hangUntil = 0, preroll = null, transmitting = false;
   let remoteLvl = 0, remoteUntil = 0, wakeLock = null, aecRouted = false;
+  let encCodecs = ["adpcm"];               // เซิร์ฟเวอร์บอกว่าต้องส่งแบบไหน
+  const adpcmEnc = C ? new C.Encoder() : null;
+  let opusEnc = null, opusTs = 0, opusOk = false;
+  const txByTs = new Map();
 
-  // ส่งเสียงที่เล่นออกลำโพงผ่าน WebRTC loopback → ตัวตัดเสียงสะท้อน (AEC) ของ Chrome/Windows
-  // จะรู้ว่าเราเล่นอะไรออกไป แล้วลบออกจากไมค์ได้ (Safari/iPhone ระบบตัดให้เองอยู่แล้ว)
-  async function loopbackOut(stream) {
-    const a = new RTCPeerConnection(), b = new RTCPeerConnection();
-    a.onicecandidate = (e) => e.candidate && b.addIceCandidate(e.candidate).catch(() => {});
-    b.onicecandidate = (e) => e.candidate && a.addIceCandidate(e.candidate).catch(() => {});
-    const got = new Promise((res) => { b.ontrack = (e) => res(e.streams[0] || new MediaStream([e.track])); });
-    stream.getTracks().forEach((t) => a.addTrack(t, stream));
-    const stereo = (sdp) => sdp.replace(/useinbandfec=1/g, "useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=128000");
-    const offer = await a.createOffer(); offer.sdp = stereo(offer.sdp);
-    await a.setLocalDescription(offer); await b.setRemoteDescription(offer);
-    const ans = await b.createAnswer(); ans.sdp = stereo(ans.sdp);
-    await b.setLocalDescription(ans); await a.setRemoteDescription(ans);
-    const remote = await Promise.race([got, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000))]);
-    const el = new Audio(); el.srcObject = remote; el.autoplay = true;
-    await el.play();
-    return { a, b, el };
+  // ---------- Opus (WebCodecs) ----------
+  const OPUS_CFG = { codec: "opus", sampleRate: RATE, numberOfChannels: 1, bitrate: 24000, opus: { frameDuration: 40000, application: "voip", complexity: 5 } };
+  const DEC_CFG = { codec: "opus", sampleRate: 48000, numberOfChannels: 1 };
+  async function opusSupport() {
+    try {
+      if (!window.AudioEncoder || !window.AudioDecoder || !window.AudioData) return { enc: false, dec: false };
+      const e = await AudioEncoder.isConfigSupported(OPUS_CFG);
+      const d = await AudioDecoder.isConfigSupported(DEC_CFG);
+      return { enc: !!e.supported, dec: !!d.supported };
+    } catch { return { enc: false, dec: false }; }
+  }
+  const caps = opusSupport();
+  function makeOpusEncoder() {
+    try {
+      const e = new AudioEncoder({
+        output: (chunk) => {
+          const tx = txByTs.get(chunk.timestamp); txByTs.delete(chunk.timestamp);
+          if (!tx || !ws || ws.readyState !== 1) return;
+          const b = new Uint8Array(chunk.byteLength); chunk.copyTo(b);
+          const p = C.packOpus([b]); const out = new Uint8Array(1 + p.length); out[0] = C.OPUS; out.set(p, 1);
+          ws.send(out);
+        },
+        error: (err) => { console.warn("opus enc", err); opusEnc = null; },
+      });
+      e.configure(OPUS_CFG);
+      return e;
+    } catch (err) { console.warn("opus enc init", err); return null; }
   }
 
   function open() {
@@ -107,8 +126,17 @@ function webEngine() {
     if (ws) { ws.onclose = null; try { ws.close(); } catch {} }
     ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => ws.send(JSON.stringify(hello));
-    ws.onmessage = (ev) => { if (typeof ev.data !== "string") return play(ev.data); try { onMsg(JSON.parse(ev.data)); } catch {} };
+    ws.onopen = async () => {
+      const c = await caps;
+      opusOk = c.enc;
+      ws.send(JSON.stringify({ ...hello, codecs: { enc: c.enc ? ["opus", "adpcm"] : ["adpcm"], dec: c.dec ? ["opus", "adpcm"] : ["adpcm"] } }));
+    };
+    ws.onmessage = (ev) => {
+      if (typeof ev.data !== "string") return play(ev.data);
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.t === "enc") { encCodecs = m.codecs || ["adpcm"]; return; }
+      onMsg(m);
+    };
     ws.onclose = () => { handleClose(); if (wantConnected && ws) reconnectTimer = setTimeout(open, 2000); };
   }
 
@@ -135,30 +163,55 @@ class Cap extends AudioWorkletProcessor {
 }
 registerProcessor("mcv-cap", Cap);`;
 
+  // ส่งเสียงที่เล่นออกลำโพงผ่าน WebRTC loopback → ตัวตัดเสียงสะท้อนของ Chrome/Windows รู้ว่าเราเล่นอะไร
+  async function loopbackOut(stream) {
+    const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+    a.onicecandidate = (e) => e.candidate && b.addIceCandidate(e.candidate).catch(() => {});
+    b.onicecandidate = (e) => e.candidate && a.addIceCandidate(e.candidate).catch(() => {});
+    const got = new Promise((res) => { b.ontrack = (e) => res(e.streams[0] || new MediaStream([e.track])); });
+    stream.getTracks().forEach((t) => a.addTrack(t, stream));
+    const stereo = (sdp) => sdp.replace(/useinbandfec=1/g, "useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=128000");
+    const offer = await a.createOffer(); offer.sdp = stereo(offer.sdp);
+    await a.setLocalDescription(offer); await b.setRemoteDescription(offer);
+    const ans = await b.createAnswer(); ans.sdp = stereo(ans.sdp);
+    await b.setLocalDescription(ans); await a.setRemoteDescription(ans);
+    const remote = await Promise.race([got, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000))]);
+    const el = new Audio(); el.srcObject = remote; el.autoplay = true;
+    await el.play();
+    return el;
+  }
+
+  async function startMic() {
+    if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
+    if (micSrc) { try { micSrc.disconnect(); } catch {} micSrc = null; }
+    const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+    if (opts.inputId) audio.deviceId = { exact: opts.inputId };
+    try { micStream = await navigator.mediaDevices.getUserMedia({ audio }); }
+    catch (e) { if (opts.inputId) { delete audio.deviceId; micStream = await navigator.mediaDevices.getUserMedia({ audio }); } else throw e; }
+    micSrc = ctx.createMediaStreamSource(micStream);
+    micSrc.connect(boostNode);
+  }
+
   async function start() {
     try {
       if (!ctx) {
         ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
         master = ctx.createGain(); master.gain.value = opts.deaf ? 0 : (opts.vol ?? 1);
-        let routed = false;
         if (!IS_SAFARI && window.RTCPeerConnection && ctx.createMediaStreamDestination) {
-          try { const dest = ctx.createMediaStreamDestination(); master.connect(dest); await loopbackOut(dest.stream); routed = true; }
+          try { const dest = ctx.createMediaStreamDestination(); master.connect(dest); outEl = await loopbackOut(dest.stream); aecRouted = true; }
           catch (e) { console.warn("AEC loopback ไม่ได้", e); }
         }
-        if (!routed) master.connect(ctx.destination);
-        aecRouted = routed;
+        if (!aecRouted) master.connect(ctx.destination);
         await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
-      }
-      if (ctx.state !== "running") ctx.resume().catch(() => {});
-      if (!micStream) {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-        const src = ctx.createMediaStreamSource(micStream);
         boostNode = ctx.createGain(); boostNode.gain.value = opts.boost ?? 1;
         capNode = new AudioWorkletNode(ctx, "mcv-cap");
         const sink = ctx.createGain(); sink.gain.value = 0;
-        src.connect(boostNode).connect(capNode).connect(sink).connect(ctx.destination);
+        boostNode.connect(capNode).connect(sink).connect(ctx.destination);
         capNode.port.onmessage = (e) => capture(e.data);
+        applyOutput();
       }
+      if (ctx.state !== "running") ctx.resume().catch(() => {});
+      if (!micStream) await startMic();
       try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
       setTimeout(() => { if (ctx && ctx.state !== "running") toast("แตะปุ่มไมค์หนึ่งครั้งเพื่อเริ่มเสียง", 5000); }, 800);
     } catch (e) {
@@ -166,51 +219,125 @@ registerProcessor("mcv-cap", Cap);`;
     }
   }
 
+  function applyOutput() {
+    const id = opts.outputId || "";
+    try {
+      if (outEl && outEl.setSinkId) outEl.setSinkId(id).catch(() => {});
+      else if (ctx && ctx.setSinkId) ctx.setSinkId(id).catch(() => {});
+    } catch {}
+  }
+
+  function sendAudio(pcm, tx) {
+    // Opus: ป้อนทุกเฟรมให้ตัวบีบอัดต่อเนื่อง ส่งเฉพาะเฟรมที่พูด
+    if (encCodecs.includes("opus") && opusOk) {
+      if (!opusEnc || opusEnc.state === "closed") opusEnc = makeOpusEncoder();
+      if (opusEnc) {
+        const f32 = new Float32Array(pcm.length);
+        for (let i = 0; i < pcm.length; i++) f32[i] = pcm[i] / 32768;
+        const ts = (opusTs += 40000);
+        if (tx) txByTs.set(ts, true);
+        if (txByTs.size > 50) txByTs.clear();
+        try {
+          const ad = new AudioData({ format: "f32-planar", sampleRate: RATE, numberOfFrames: pcm.length, numberOfChannels: 1, timestamp: ts, data: f32 });
+          opusEnc.encode(ad); ad.close();
+        } catch (e) { console.warn(e); }
+      }
+    }
+    if (!tx || !ws || ws.readyState !== 1) return;
+    if (encCodecs.includes("adpcm") || !opusOk) {
+      const a = adpcmEnc.encode(pcm); const out = new Uint8Array(1 + a.length); out[0] = C.ADPCM; out.set(a, 1);
+      ws.send(out);
+    }
+  }
+
   function capture({ pcm, rms }) {
+    const s16 = new Int16Array(pcm);
     let tx = false;
     if (opts.active && !opts.muted && ws && ws.readyState === 1) {
       if (opts.ptt) tx = !!opts.pttDown;
       else {
         const now = performance.now();
         let th = opts.threshold ?? 0.02;
-        // กันเสียงสะท้อน: ขณะได้ยินคนอื่นพูด ต้องพูดดังกว่าเสียงที่ย้อนเข้าไมค์จึงจะส่ง
         if (opts.echoGate && now < remoteUntil) th = Math.max(th * 3, remoteLvl * 0.6);
         if (rms > th) hangUntil = now + 450;
         tx = now < hangUntil;
       }
     }
-    if (tx) { if (!transmitting && preroll && !opts.ptt) ws.send(preroll); ws.send(pcm); }
-    preroll = pcm; transmitting = tx;
+    // ส่งช่วงต้นคำที่ตกไป (เฉพาะ ADPCM — Opus ต้องป้อนต่อเนื่อง)
+    if (tx && !transmitting && preroll && !opts.ptt && (encCodecs.includes("adpcm") || !opusOk) && ws) {
+      const a = adpcmEnc.encode(preroll); const out = new Uint8Array(1 + a.length); out[0] = C.ADPCM; out.set(a, 1); ws.send(out);
+    }
+    sendAudio(s16, tx);
+    preroll = s16; transmitting = tx;
     onLevel(rms, tx);
   }
 
-  function play(buf) {
-    if (!ctx || opts.deaf || buf.byteLength < 6) return;
-    const dv = new DataView(buf);
-    const slot = dv.getUint16(0, true), g = dv.getUint8(2) / 255, pan = dv.getInt8(3) / 127;
-    const pcm = new Int16Array(buf, 4, (buf.byteLength - 4) >> 1);
+  function speaker(slot) {
     let sp = speakers.get(slot);
-    if (!sp) {
-      const gain = ctx.createGain(); gain.gain.value = g;
-      let out = gain, panner = null;
-      if (ctx.createStereoPanner) { panner = ctx.createStereoPanner(); gain.connect(panner); out = panner; }
-      out.connect(master);
-      sp = { gain, panner, next: 0 }; speakers.set(slot, sp);
-    }
+    if (sp) return sp;
+    const gain = ctx.createGain(); gain.gain.value = 0;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 20000; lp.Q.value = 0.7;
+    gain.connect(lp);
+    let out = lp, panner = null;
+    if (ctx.createStereoPanner) { panner = ctx.createStereoPanner(); lp.connect(panner); out = panner; }
+    out.connect(master);
+    sp = { gain, lp, panner, next: 0, dec: null, g: 0 };
+    speakers.set(slot, sp);
+    return sp;
+  }
+
+  function schedule(sp, f32, rate) {
     const t = ctx.currentTime;
-    sp.gain.gain.setTargetAtTime(g, t, 0.06);
-    if (sp.panner) sp.panner.pan.setTargetAtTime(pan, t, 0.08);
-    const ab = ctx.createBuffer(1, pcm.length, RATE);
-    const ch = ab.getChannelData(0);
-    let sq = 0;
-    for (let i = 0; i < pcm.length; i++) { const v = pcm[i] / 32768; ch[i] = v; sq += v * v; }
-    const lvl = Math.sqrt(sq / pcm.length) * g * (opts.vol ?? 1);
+    let sq = 0; for (let i = 0; i < f32.length; i++) sq += f32[i] * f32[i];
+    const lvl = Math.sqrt(sq / f32.length) * sp.g * (opts.vol ?? 1);
     const nowMs = performance.now();
     remoteLvl = nowMs < remoteUntil ? Math.max(remoteLvl * 0.9, lvl) : lvl;
     remoteUntil = nowMs + 250;
+    const ab = ctx.createBuffer(1, f32.length, rate);
+    ab.copyToChannel ? ab.copyToChannel(f32, 0) : ab.getChannelData(0).set(f32);
     const src = ctx.createBufferSource(); src.buffer = ab; src.connect(sp.gain);
-    if (sp.next < t + 0.015 || sp.next > t + 0.45) sp.next = t + 0.09;
+    if (sp.next < t + 0.015 || sp.next > t + 0.45) sp.next = t + 0.09; // jitter buffer ~90ms
     src.start(sp.next); sp.next += ab.duration;
+  }
+
+  function play(buf) {
+    if (!ctx || opts.deaf || buf.byteLength < 7) return;
+    const dv = new DataView(buf);
+    const slot = dv.getUint16(0, true), g = dv.getUint8(2) / 255, pan = dv.getInt8(3) / 127, lpHz = dv.getUint8(4) * 50, codec = dv.getUint8(5);
+    const body = new Uint8Array(buf, 6);
+    const sp = speaker(slot);
+    const t = ctx.currentTime;
+    const mult = (opts.spkVol && opts.spkVol[slot] != null) ? opts.spkVol[slot] : 1;
+    sp.g = g * mult;
+    sp.gain.gain.setTargetAtTime(sp.g, t, 0.06);
+    sp.lp.frequency.setTargetAtTime(lpHz > 0 ? lpHz : 20000, t, 0.1);
+    if (sp.panner) sp.panner.pan.setTargetAtTime(pan, t, 0.08);
+    if (codec === C.ADPCM) {
+      const s = C.adpcmDecode(body, FRAME); const f = new Float32Array(s.length);
+      for (let i = 0; i < s.length; i++) f[i] = s[i] / 32768;
+      schedule(sp, f, RATE);
+    } else if (codec === C.OPUS) {
+      if (!sp.dec || sp.dec.state === "closed") {
+        try {
+          sp.dec = new AudioDecoder({
+            output: (ad) => {
+              const f = new Float32Array(ad.numberOfFrames);
+              ad.copyTo(f, { planeIndex: 0, format: "f32-planar" });
+              schedule(sp, f, ad.sampleRate); ad.close();
+            },
+            error: (e) => { console.warn("opus dec", e); sp.dec = null; },
+          });
+          sp.dec.configure(DEC_CFG);
+        } catch (e) { console.warn(e); sp.dec = null; return; }
+      }
+      for (const pkt of C.unpackOpus(body)) {
+        try { sp.dec.decode(new EncodedAudioChunk({ type: "key", timestamp: (sp.ts = (sp.ts || 0) + 40000), data: pkt })); } catch (e) { console.warn(e); }
+      }
+    } else {
+      const s = new Int16Array(buf.slice(6)); const f = new Float32Array(s.length);
+      for (let i = 0; i < s.length; i++) f[i] = s[i] / 32768;
+      schedule(sp, f, RATE);
+    }
   }
 
   setInterval(() => { if (ctx && ctx.state === "suspended" && linked) ctx.resume().catch(() => {}); }, 3000);
@@ -224,14 +351,27 @@ registerProcessor("mcv-cap", Cap);`;
     startAudio() { return (audioBusy ||= start().finally(() => { audioBusy = null; })); },
     stopAudio() {
       if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
-      if (capNode) { capNode.port.onmessage = null; capNode.disconnect(); capNode = null; }
+      if (micSrc) { try { micSrc.disconnect(); } catch {} micSrc = null; }
     },
     setOpts(o) {
+      const inChanged = "inputId" in o && o.inputId !== opts.inputId;
+      const outChanged = "outputId" in o && o.outputId !== opts.outputId;
       Object.assign(opts, o);
       if (master) master.gain.value = opts.deaf ? 0 : (opts.vol ?? 1);
       if (boostNode) boostNode.gain.value = opts.boost ?? 1;
+      if (inChanged && ctx && micStream) startMic().catch((e) => toast("เปลี่ยนไมค์ไม่ได้: " + esc(e.message || e)));
+      if (outChanged) applyOutput();
     },
-    debug: () => ({ speakers: speakers.size, aecRouted, remoteLvl, ctx: ctx && ctx.state }),
+    async listDevices() {
+      try {
+        const d = await navigator.mediaDevices.enumerateDevices();
+        const map = (k) => d.filter((x) => x.kind === k && x.deviceId !== "default" && x.deviceId !== "communications").map((x, i) => ({ id: x.deviceId, name: x.label || (k === "audioinput" ? "ไมค์ " : "ลำโพง ") + (i + 1) }));
+        const canOut = !!((outEl && outEl.setSinkId) || (window.AudioContext && AudioContext.prototype.setSinkId));
+        return { inputs: map("audioinput"), outputs: canOut ? map("audiooutput") : [] };
+      } catch { return { inputs: [], outputs: [] }; }
+    },
+    codecInfo: () => (encCodecs.includes("opus") && opusOk ? "Opus" : "ADPCM"),
+    debug: () => ({ speakers: speakers.size, aecRouted, enc: encCodecs, opusOk }),
     beep() {
       if (!ctx || opts.deaf) return;
       const o = ctx.createOscillator(), g = ctx.createGain();
@@ -247,6 +387,7 @@ function pushOpts() {
     active: linked && (status ? status.canSpeak : true),
     muted, deaf, ptt: mode === "ptt", pttDown,
     threshold: threshold(), boost: boost / 100, vol: vol / 100, echoGate,
+    inputId: store.get("inputId", ""), outputId: store.get("outputId", ""), spkVol: slotVolumes(),
   });
 }
 
@@ -293,7 +434,7 @@ function onMsg(m) {
       $("dot").classList.add("on");
       $("meName").textContent = m.name;
       show("scrMain");
-      Promise.resolve(engine.startAudio()).then(() => { pushOpts(); sendState(); });
+      Promise.resolve(engine.startAudio()).then(() => { pushOpts(); sendState(); loadDevices(); });
       break;
     case "status": status = m; $("dot").classList.add("on"); renderStatus(); pushOpts(); break;
     case "announce":
@@ -353,7 +494,15 @@ function renderStatus() {
   renderBadges(); renderMic();
   const ul = $("nearby");
   if (!s.nearby.length) { ul.innerHTML = '<li class="hint">ไม่มีใครอยู่ในระยะ</li>'; return; }
-  ul.innerHTML = s.nearby.map((n) => `<li><span class="tk ${n.talking ? "on" : ""}"></span><span class="nm">${esc(n.n)}</span><span class="vb"><i style="width:${n.g}%"></i></span><span class="d">${n.d} บล็อค</span></li>`).join("");
+  ul.innerHTML = s.nearby.map((n) => {
+    const k = n.n.toLowerCase(), pv = personVol[k] ?? 100;
+    const fx = n.lp ? (n.lp <= 500 ? " 🌊" : " 🧱") : "";
+    const row = `<li data-n="${esc(k)}"><span class="tk ${n.talking ? "on" : ""}"></span><span class="nm">${esc(n.n)}${fx}${pv !== 100 ? ` <small class="hint">${pv}%</small>` : ""}</span><span class="vb"><i style="width:${n.g}%"></i></span><span class="d">${n.d} บล็อค</span></li>`;
+    const ctl = openPerson === k ? `<li class="pv"><label>เสียงของ ${esc(n.n)} <span>${pv}%</span></label><input type="range" min="0" max="200" step="5" value="${pv}" data-pv="${esc(k)}"></li>` : "";
+    return row + ctl;
+  }).join("");
+  const codec = engine.codecInfo ? engine.codecInfo() : "";
+  $("codecTxt").textContent = codec ? "การส่งเสียง: " + codec + (codec === "Opus" ? " (บีบอัดสูง ใช้เน็ตน้อย)" : " (บีบอัด 4 เท่า)") : "";
 }
 
 // =====================================================================
@@ -433,6 +582,46 @@ if (window.mcvoiceNative) {
 } else if (NATIVE) {
   $("hotkeyHint").textContent = "พับแอปไปเล่นเกมได้เลย เสียงยังทำงาน • ปิด/เปิดไมค์ได้จากแถบแจ้งเตือน";
 }
+
+// =====================================================================
+// ปรับเสียงรายคน + เลือกไมค์/ลำโพง
+// =====================================================================
+let personVol = store.get("personVol", {}); // ชื่อ (ตัวเล็ก) → % (0-200)
+function slotVolumes() {
+  const m = {};
+  if (status && status.nearby) for (const n of status.nearby) { const v = personVol[n.n.toLowerCase()]; if (v != null) m[n.slot] = v / 100; }
+  return m;
+}
+let openPerson = null;
+$("nearby").addEventListener("click", (e) => {
+  const li = e.target.closest("li[data-n]");
+  if (!li || e.target.closest("input")) return;
+  openPerson = openPerson === li.dataset.n ? null : li.dataset.n;
+  renderStatus();
+});
+$("nearby").addEventListener("input", (e) => {
+  if (!e.target.matches("input[data-pv]")) return;
+  const k = e.target.dataset.pv, v = +e.target.value;
+  personVol[k] = v; store.set("personVol", personVol);
+  const lab = e.target.parentElement.querySelector("span"); if (lab) lab.textContent = v + "%";
+  pushOpts();
+});
+
+async function loadDevices() {
+  if (!engine.listDevices) return;
+  const d = await engine.listDevices();
+  const fill = (sel, list, cur) => {
+    sel.innerHTML = '<option value="">อัตโนมัติ</option>' + list.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("");
+    sel.value = list.some((x) => x.id === cur) ? cur : "";
+  };
+  fill($("selIn"), d.inputs || [], store.get("inputId", ""));
+  fill($("selOut"), d.outputs || [], store.get("outputId", ""));
+  $("rowOut").classList.toggle("hidden", !(d.outputs || []).length);
+}
+$("selIn").onchange = (e) => { store.set("inputId", e.target.value); pushOpts(); };
+$("selOut").onchange = (e) => { store.set("outputId", e.target.value); pushOpts(); };
+$("btnRefreshDev").onclick = loadDevices;
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener("devicechange", loadDevices);
 
 // =====================================================================
 // เจ้าของโลก (โลกธรรมดา): คำสั่ง /wsserver + ตัวเชื่อมในเครื่อง (Windows/Android)

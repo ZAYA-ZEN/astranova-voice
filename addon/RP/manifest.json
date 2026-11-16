@@ -4,10 +4,10 @@
     "name": "§dAstra Nova Voice §7RP",
     "description": "Texture ของ Astra Nova Voice",
     "uuid": "1ee81757-f19d-4f58-b43e-4166a16e23eb",
-    "version": [1, 2, 0],
+    "version": [1, 4, 0],
     "min_engine_version": [1, 21, 90]
   },
   "modules": [
-    { "type": "resources", "uuid": "1cefc091-d455-450e-8aa1-97993ff32c00", "version": [1, 2, 0] }
+    { "type": "resources", "uuid": "1cefc091-d455-450e-8aa1-97993ff32c00", "version": [1, 4, 0] }
   ]
 }

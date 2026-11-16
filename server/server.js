@@ -450,3 +450,8 @@ server.listen(cfg.port, () => {
 });
 
 module.exports = { mix, game, server };
+
+// Render ฟรีจะหลับถ้าไม่มีคนเรียก ~15 นาที — ปลุกตัวเองทุก 10 นาที (ทำงานเฉพาะบน Render)
+if (process.env.RENDER_EXTERNAL_URL) {
+  setInterval(() => { fetch(process.env.RENDER_EXTERNAL_URL + "/healthz").catch(() => {}); }, 10 * 60 * 1000).unref();
+}

@@ -4,7 +4,7 @@ name: Build Astra Nova Voice (APK / IPA / EXE)
 on:
   workflow_dispatch:
   push:
-    paths: ["app/**", ".github/workflows/**"]
+    paths: ["app/**", "addon/**", ".github/workflows/**"]
 
 env:
   VOICE_SERVER_URL: ${{ vars.VOICE_SERVER_URL }}

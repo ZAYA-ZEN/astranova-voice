@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#05060f">
+<title>Astra Nova Voice</title>
+<link rel="icon" href="logo.jpg">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Astra Voice">
+<style>
+  :root { --bg:#05060f; --card:#0f1124; --line:#262a4d; --txt:#eceaff; --mut:#9a98c3; --ok:#3ddc84; --bad:#ff5a7a; --acc:#9d7bff; --warn:#ffc96b; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; min-height:100%; background:radial-gradient(1200px 600px at 50% -10%, #1d1546 0%, #05060f 60%) fixed; color:var(--txt); font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", Tahoma, sans-serif; }
+  body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  .wrap { max-width:520px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:4px 0 14px; display:flex; align-items:center; gap:8px; }
+  h1 .dot { width:10px; height:10px; border-radius:50%; background:var(--bad); }
+  h1 .dot.on { background:var(--ok); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  label { display:block; font-size:13px; color:var(--mut); margin:10px 0 6px; }
+  input[type=text], input[type=number] { width:100%; padding:12px; font-size:16px; border-radius:10px; border:1px solid var(--line); background:#0d1117; color:var(--txt); }
+  .code { letter-spacing:8px; text-align:center; font-size:28px !important; font-weight:700; }
+  button { font: inherit; border:0; border-radius:10px; padding:12px 14px; background:var(--line); color:var(--txt); cursor:pointer; }
+  button.pri { background:linear-gradient(90deg,#7b5cff,#4f8dff); color:#fff; font-weight:700; width:100%; margin-top:14px; }
+  button.link { background:none; color:var(--acc); padding:8px 0; }
+  .hidden { display:none !important; }
+  .err { color:var(--bad); font-size:14px; min-height:18px; margin-top:8px; }
+  .hint { color:var(--mut); font-size:13px; line-height:1.5; }
+  .badges { display:flex; flex-wrap:wrap; gap:6px; }
+  .b { font-size:12px; padding:4px 8px; border-radius:20px; background:#0d1117; border:1px solid var(--line); }
+  .b.ok { color:var(--ok); border-color:#1e5c3a; } .b.bad { color:var(--bad); border-color:#6b2427; } .b.warn { color:var(--warn); border-color:#6b5420; }
+  .mic { display:flex; flex-direction:column; align-items:center; gap:10px; padding:10px 0; }
+  .logo { display:block; width:min(62vw,240px); aspect-ratio:1; margin:6px auto 14px; border-radius:50%; box-shadow:0 0 60px #6d4dff55; }
+  .logo.sm { width:36px; height:36px; margin:0; box-shadow:0 0 14px #6d4dff88; }
+  .micbtn { width:150px; height:150px; border-radius:50%; font-size:56px; background:#16352a; border:4px solid var(--ok); color:var(--ok); transition:transform .08s, box-shadow .1s; user-select:none; -webkit-user-select:none; touch-action:none; }
+  .micbtn.off { background:#3a1719; border-color:var(--bad); color:var(--bad); }
+  .micbtn.tx { box-shadow:0 0 0 10px rgba(61,220,132,.25); transform:scale(1.03); }
+  .row { display:flex; gap:8px; } .row > * { flex:1; }
+  .tog.on { background:#3a1719; color:var(--bad); }
+  .meter { height:8px; background:#0d1117; border-radius:6px; overflow:hidden; position:relative; }
+  .meter > i { position:absolute; inset:0 auto 0 0; width:0; background:var(--ok); transition:width .05s; }
+  .meter > b { position:absolute; top:-2px; bottom:-2px; width:2px; background:var(--warn); }
+  input[type=range] { width:100%; }
+  .seg { display:flex; background:#0d1117; border-radius:10px; padding:3px; }
+  .seg button { flex:1; background:none; padding:9px; font-size:14px; }
+  .seg button.sel { background:var(--line); }
+  ul { list-style:none; margin:0; padding:0; }
+  li { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); }
+  li:last-child { border:0; }
+  li .nm { flex:1; } li .d { color:var(--mut); font-size:13px; width:60px; text-align:right; }
+  li .vb { width:70px; height:6px; background:#0d1117; border-radius:4px; overflow:hidden; } li .vb i { display:block; height:100%; background:var(--acc); }
+  li .tk { width:10px; height:10px; border-radius:50%; background:transparent; } li .tk.on { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  details.host summary { cursor:pointer; font-weight:600; list-style:none; }
+  details.host summary::-webkit-details-marker { display:none; }
+  .cmd { display:flex; gap:6px; margin:8px 0; }
+  .cmd code { flex:1; background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:10px; font-size:13px; word-break:break-all; user-select:all; -webkit-user-select:all; }
+  .cmd button { padding:8px 12px; }
+  ol.steps { margin:6px 0 0; padding-left:20px; color:var(--mut); font-size:13px; line-height:1.6; }
+  ol.steps li { display:list-item; padding:3px 0; border:0; }
+  #toast { position:fixed; left:12px; right:12px; top:calc(12px + env(safe-area-inset-top)); max-width:500px; margin:auto; background:#3b2a07; border:1px solid var(--warn); color:#ffe2a6; padding:12px 14px; border-radius:12px; z-index:9; box-shadow:0 8px 30px #0008; }
+  #toast b { color:var(--warn); }
+</style>
+</head>
+<body>
+<div id="toast" class="hidden"></div>
+<div class="wrap">
+  <h1 id="topbar" class="hidden"><img src="logo.jpg" class="logo sm" alt=""> Astra Nova Voice <span class="dot" id="dot"></span></h1>
+
+  <!-- 1) เชื่อมต่อ -->
+  <section id="scrConnect">
+    <img src="logo.jpg" class="logo" alt="Astra Nova">
+    <div class="card">
+      <div id="serverBox">
+        <label>ที่อยู่เซิร์ฟเวอร์เสียง (ขอจากแอดมิน)</label>
+        <input type="text" id="inServer" placeholder="เช่น astranova-voice.onrender.com" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <label>ชื่อ Xbox (Gamertag) ในเกม</label>
+      <input type="text" id="inName" placeholder="เช่น Steve1234" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="32">
+      <button class="pri" id="btnConnect">เข้าใช้งาน</button>
+      <div class="err" id="errConnect"></div>
+      <button class="link" id="btnShowServer">⚙ เปลี่ยนเซิร์ฟเวอร์</button>
+    </div>
+    <p class="hint" style="text-align:center">ใส่ชื่อ Xbox ให้ตรงกับในเกม แล้วเข้าเกมได้เลย ระบบจะลิงก์ให้อัตโนมัติ<br>แนะนำให้ใส่หูฟังเพื่อไม่ให้เสียงสะท้อน</p>
+  </section>
+
+  <!-- รอเข้าเกม -->
+  <section id="scrWait" class="hidden">
+    <img src="logo.jpg" class="logo" alt="">
+    <div class="card" style="text-align:center">
+      <b id="waitTitle">รอคุณเข้าเกม…</b>
+      <p class="hint" id="waitHint"></p>
+      <button class="link" id="btnWaitBack">« กลับ</button>
+    </div>
+    <details class="card host" open><summary>🏠 ฉันเป็นเจ้าของโลก (โลกธรรมดา)</summary><div class="hostBody"></div></details>
+  </section>
+
+  <!-- 2) ยืนยัน -->
+  <section id="scrVerify" class="hidden">
+    <div class="card">
+      <div class="hint" id="verifyHint">เข้าเกมแล้วดูรหัส 6 หลักที่เด้งขึ้นกลางจอ/ในแชท</div>
+      <label>รหัสยืนยัน</label>
+      <input type="text" id="inCode" class="code" inputmode="numeric" maxlength="6" placeholder="------">
+      <button class="pri" id="btnVerify">ยืนยัน</button>
+      <div class="err" id="errVerify"></div>
+      <div class="row"><button class="link" id="btnResend">ขอรหัสใหม่</button><button class="link" id="btnBack">เปลี่ยนชื่อ/เซิฟ</button></div>
+    </div>
+  </section>
+
+  <!-- 3) หน้าหลัก -->
+  <section id="scrMain" class="hidden">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <b id="meName">-</b><span class="hint" id="rangeTxt">ระยะ - บล็อค</span>
+      </div>
+      <div class="badges" id="badges"></div>
+    </div>
+
+    <div class="card mic">
+      <button class="micbtn" id="btnMic">🎤</button>
+      <div class="hint" id="micHint">แตะเพื่อปิด/เปิดไมค์</div>
+      <div class="row" style="width:100%">
+        <button class="tog" id="btnDeaf">🎧 ปิดหู</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label style="margin-top:0">โหมดพูด</label>
+      <div class="seg"><button id="mVad" class="sel">พูดแล้วส่งอัตโนมัติ</button><button id="mPtt">กดค้างปุ่มไมค์เพื่อพูด</button></div>
+      <label>ระดับเสียงไมค์ <span id="vadLbl" class="hint">(เส้นเหลือง = จุดเริ่มส่งเสียง)</span></label>
+      <div class="meter"><i id="lvl"></i><b id="thrMark"></b></div>
+      <label>ความไวไมค์</label>
+      <input type="range" id="sens" min="1" max="100" value="60">
+      <label>เพิ่มเสียงไมค์ <span class="hint" id="boostTxt">100%</span></label>
+      <input type="range" id="boost" min="50" max="300" value="100">
+      <label style="display:flex;align-items:center;gap:8px;color:var(--txt)"><input type="checkbox" id="echo" style="width:20px;height:20px"> กันเสียงสะท้อน <span class="hint">(เปิดไว้ถ้าไม่ได้ใส่หูฟัง)</span></label>
+      <label>เสียงลำโพงรวม <span class="hint" id="volTxt">100%</span></label>
+      <input type="range" id="vol" min="0" max="200" value="100">
+      <div class="hint" id="hotkeyHint"></div>
+    </div>
+
+    <div class="card">
+      <b>คนที่อยู่ในระยะ</b>
+      <ul id="nearby"><li class="hint">ไม่มีใครอยู่ใกล้</li></ul>
+    </div>
+
+    <details class="card host"><summary>🏠 ฉันเป็นเจ้าของโลก (โลกธรรมดา)</summary><div class="hostBody"></div></details>
+
+    <div class="row"><button id="btnLogout">ออก</button><button id="btnUnlink">เปลี่ยนบัญชี</button></div>
+  </section>
+</div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

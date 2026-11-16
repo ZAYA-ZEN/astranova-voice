@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: astranova-voice
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: MAX_RANGE
+        value: "100"

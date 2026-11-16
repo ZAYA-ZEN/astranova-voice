@@ -1,0 +1,58 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "§dAstra Nova Voice §7โลกธรรมดา",
+    "description": "ไมค์ตามระยะสำหรับโลกธรรมดา ใช้คู่กับคำสั่ง /wsserver และแอป Astra Nova Voice (ไม่ต้องใช้ BDS)",
+    "uuid": "5a3c2f8e-9d1b-4e7a-b6c4-2f1e8d7c9a01",
+    "version": [
+      1,
+      2,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      21,
+      90
+    ]
+  },
+  "modules": [
+    {
+      "type": "data",
+      "uuid": "6b4d3a9f-0e2c-4f8b-a7d5-3a2f9e8dab12",
+      "version": [
+        1,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "script",
+      "language": "javascript",
+      "uuid": "7c5e4bae-1f3d-4a9c-b8e6-4b3aaf9ebc23",
+      "version": [
+        1,
+        2,
+        0
+      ],
+      "entry": "scripts/entry_world.js"
+    }
+  ],
+  "dependencies": [
+    {
+      "uuid": "1ee81757-f19d-4f58-b43e-4166a16e23eb",
+      "version": [
+        1,
+        2,
+        0
+      ]
+    },
+    {
+      "module_name": "@minecraft/server",
+      "version": "2.0.0"
+    },
+    {
+      "module_name": "@minecraft/server-ui",
+      "version": "2.0.0"
+    }
+  ]
+}

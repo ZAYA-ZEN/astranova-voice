@@ -1,0 +1,8 @@
+{
+  "resource_pack_name": "mcvoice",
+  "texture_name": "atlas.items",
+  "texture_data": {
+    "voice_mic": { "textures": "textures/items/voice_mic" },
+    "voice_admin": { "textures": "textures/items/voice_admin" }
+  }
+}

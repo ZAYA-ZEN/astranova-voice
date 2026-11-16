@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Astra Nova Voice</string>
+    <string name="title_activity_main">Astra Nova Voice</string>
+    <string name="package_name">com.astranova.voice</string>
+    <string name="custom_url_scheme">com.astranova.voice</string>
+</resources>

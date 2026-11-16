@@ -91,7 +91,7 @@ function mix(speakerKey, listenerKey) {
 // ---------- HTTP ----------
 // หน้าเว็บ (สำหรับ iPhone/เบราว์เซอร์): ใช้ www ข้างไฟล์นี้ หรือ app/www ใน repo (ตอนอยู่บน Render)
 const WWW = [path.join(BASE, "www"), path.join(__dirname, "..", "app", "www")].find((d) => fs.existsSync(path.join(d, "index.html"))) || path.join(BASE, "www");
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".json": "application/json", ".svg": "image/svg+xml", ".jpg": "image/jpeg", ".webmanifest": "application/manifest+json" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".json": "application/json", ".svg": "image/svg+xml", ".jpg": "image/jpeg", ".webmanifest": "application/manifest+json" };
 
 function readBody(req, limit = 1e6) {
   return new Promise((resolve, reject) => {

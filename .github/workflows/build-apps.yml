@@ -67,3 +67,35 @@ jobs:
       - run: npx electron-builder --win portable --x64
       - uses: actions/upload-artifact@v4
         with: { name: AstraNovaVoice-Windows-EXE, path: app/dist/*.exe }
+
+  release:
+    needs: [android, ios, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - name: Collect files
+        run: |
+          mkdir -p out
+          sh addon/build.sh "$PWD/out"
+          cp artifacts/AstraNovaVoice-Android-APK/*.apk out/AstraNovaVoice-Android.apk
+          cp artifacts/AstraNovaVoice-iOS-IPA-unsigned/*.ipa out/AstraNovaVoice-iOS.ipa
+          cp artifacts/AstraNovaVoice-Windows-EXE/*.exe out/AstraNovaVoice-Windows.exe
+          ls -la out
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Astra Nova Voice (ล่าสุด)
+          make_latest: true
+          body: |
+            ดาวน์โหลด Astra Nova Voice
+            - AstraNovaVoice-Android.apk — แอป Android
+            - AstraNovaVoice-iOS.ipa — แอป iPhone (ติดตั้งด้วย Sideloadly / AltStore)
+            - AstraNovaVoice-Windows.exe — แอป Windows
+            - AstraNovaVoice-World.mcaddon — แอดออนโลกธรรมดา
+            - AstraNovaVoice-Server.mcaddon — แอดออนเซิฟเช่า (mcsv / BDS)
+            เว็บสำหรับทุกเครื่อง: https://astranova-voice.onrender.com
+          files: out/*

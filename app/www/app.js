@@ -402,11 +402,23 @@ function connect() {
     .catch((e) => { $("errConnect").textContent = "เชื่อมต่อไม่ได้: " + (e.message || e); });
 }
 
+let wakeUntil = 0;
+function wakeServer() {
+  // ปลุกเซิร์ฟเวอร์ฟรีที่หลับอยู่ (Render) — ใช้เวลาได้ถึง ~1 นาที
+  try { const u = new URL(wsUrl(server)); fetch((u.protocol === "wss:" ? "https://" : "http://") + u.host + "/healthz", { mode: "no-cors", cache: "no-store" }).catch(() => {}); } catch {}
+}
 function handleClose() {
   $("dot").classList.remove("on");
   if (!wantConnected) return;
   if (!linked && $("scrWait").classList.contains("hidden")) {
-    $("errConnect").textContent = "เชื่อมต่อเซิร์ฟเวอร์เสียงไม่ได้ (ถ้าใช้ Render อาจกำลังตื่น รอ 30 วิแล้วลองใหม่)";
+    if (Date.now() < wakeUntil) {
+      const left = Math.ceil((wakeUntil - Date.now()) / 1000);
+      $("errConnect").textContent = "กำลังปลุกเซิร์ฟเวอร์เสียง… (ครั้งแรกอาจใช้เวลาถึง 1 นาที เหลือ " + left + " วิ)";
+      wakeServer();
+      if (!NATIVE) setTimeout(() => { if (wantConnected && !linked) connect(); }, 3000); // แอปมือถือต่อใหม่เองอยู่แล้ว
+      return;
+    }
+    $("errConnect").textContent = "เชื่อมต่อเซิร์ฟเวอร์เสียงไม่ได้ ตรวจเน็ตแล้วลองใหม่";
     show("scrConnect"); wantConnected = false; engine.close();
   }
   renderBadges();
@@ -525,6 +537,7 @@ $("btnConnect").onclick = () => {
   if (!/^[A-Za-z0-9 _-]{1,32}$/.test(name)) { $("errConnect").textContent = "กรอกชื่อ Xbox ให้ถูกต้อง"; return; }
   store.set("server", server); store.set("name", name); renderHost();
   wantConnected = true; linked = false;
+  wakeUntil = Date.now() + 90000; wakeServer();
   if (!NATIVE) engine.startAudio(); // ปลดล็อกเสียงจากการแตะ (จำเป็นบนเบราว์เซอร์)
   connect();
 };
@@ -670,4 +683,4 @@ async function startBridge() {
 
 renderMic();
 renderHost();
-if (server && name && store.get("auto", false)) { wantConnected = true; connect(); } // เข้าอัตโนมัติ
+if (server && name && store.get("auto", false)) { wantConnected = true; wakeUntil = Date.now() + 90000; wakeServer(); connect(); } // เข้าอัตโนมัติ

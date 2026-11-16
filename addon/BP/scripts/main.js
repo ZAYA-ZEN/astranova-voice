@@ -35,7 +35,7 @@ let nearbyInfo = {};
 const lastToggle = new Map();
 const origNameTag = new Map();
 
-const key = (name) => name.toLowerCase();
+const key = (name) => String(name).replace(/§./g, "").replace(/\[[^\]]*\]/g, "").trim().toLowerCase();
 
 function save() {
   mirrorState();
@@ -439,7 +439,7 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
         giveItem(p, MIC_ITEM);
         p.setDynamicProperty("mcvoice:gotMic", true);
       }
-      p.sendMessage("§b[ไมค์] §fเซิฟนี้มีไมค์ตามระยะ! เปิดแอป " + APP + "§f แล้วใส่ชื่อ §e" + p.name + "§f ก็ใช้ได้เลย\n§7ถือไอเท็มไมค์แล้วกด = เปิด/ปิดไมค์ • ย่อตัว+กด = เมนู");
+      p.sendMessage("§b[ไมค์] §fเซิฟนี้มีไมค์ตามระยะ! เปิดแอป " + APP + "§f แล้วใส่ชื่อ Xbox §e" + p.name.replace(/§./g, "").replace(/\[[^\]]*\]/g, "").trim() + "§f ก็ใช้ได้เลย\n§7ถือไอเท็มไมค์แล้วกด = เปิด/ปิดไมค์ • ย่อตัว+กด = เมนู");
     } catch { /* ผู้เล่นออกไปแล้ว */ }
   }, 60);
 });

@@ -25,7 +25,9 @@ let tokens = fs.existsSync(LINKS_PATH) ? JSON.parse(fs.readFileSync(LINKS_PATH, 
 const saveTokens = () => { try { fs.writeFileSync(LINKS_PATH, JSON.stringify(tokens, null, 1)); } catch {} };
 
 const SAMPLE_RATE = 16000;
-const key = (n) => String(n || "").trim().toLowerCase();
+// ชื่อในเกมอาจมีของแถม เช่น "[FLARIAL] Name" หรือโค้ดสี § → ตัดออกก่อนเทียบ
+const cleanName = (n) => String(n || "").replace(/§./g, "").replace(/\[[^\]]*\]/g, "").trim();
+const key = (n) => cleanName(n).toLowerCase();
 
 // ---------- สถานะเกม (มาจากแอดออน) ----------
 const game = {
@@ -152,7 +154,7 @@ function applyGame(body) {
     }
     nearby[c.key] = arr;
   }
-  for (const c of clients) if (c.waiting && !c.linked && game.players.has(c.key)) { c.waiting = false; c.name = game.players.get(c.key).n; finishLink(c, true); }
+  for (const c of clients) if (c.waiting && !c.linked && game.players.has(c.key)) { c.waiting = false; c.name = cleanName(game.players.get(c.key).n); finishLink(c, true); }
   const jl = [...justLinked]; justLinked.clear();
   return { ok: true, links, linked, talking, nearby, justLinked: jl };
 }
@@ -331,7 +333,7 @@ wss.on("connection", (ws, req) => {
     if (m.t === "hello") {
       const name = String(m.name || "").trim().slice(0, 32);
       if (!/^[A-Za-z0-9 _-]{1,32}$/.test(name)) return sendJSON(c, { t: "error", msg: "ชื่อ Xbox ไม่ถูกต้อง" });
-      c.name = game.players.get(key(name))?.n || name;
+      c.name = cleanName(game.players.get(key(name))?.n || name);
       c.key = key(name);
       // ตัวบีบอัดเสียงที่เครื่องนี้รองรับ (ADPCM ใช้ได้ทุกเครื่อง, Opus บีบได้มากกว่า)
       const caps = m.codecs || {};

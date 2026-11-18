@@ -343,6 +343,11 @@ function drawIndicators() {
 // ---------------- แจ้งเตือนข้างจอ (เห็นแค่ตัวเอง) ----------------
 // ส่งเป็น title ที่ขึ้นต้นด้วย "astra:" — RP (ui/hud_screen.json) จะย้ายไปแสดงชิดขวากลางจอแทน title ปกติ
 const sideShown = new Map(), sideAt = new Map(), titleHold = new Map();
+// ล้างแผงข้างจอทันที: ส่ง title ว่างที่หายในทันที แล้วล้างทิ้ง
+function clearSide(p) {
+  try { p.onScreenDisplay.setTitle(" ", { fadeInDuration: 0, stayDuration: 1, fadeOutDuration: 0 }); p.onScreenDisplay.clearTitle(); } catch {}
+  sideShown.delete(key(p.name));
+}
 function holdSide(p, ticks = 120) { titleHold.set(key(p.name), system.currentTick + ticks); sideShown.delete(key(p.name)); }
 function updateSide() {
   const ps = world.getAllPlayers(), now = system.currentTick;
@@ -371,7 +376,7 @@ function updateSide() {
           v.onScreenDisplay.setTitle("astra:" + txt, { fadeInDuration: 0, stayDuration: 100, fadeOutDuration: 0 });
           sideShown.set(k, txt); sideAt.set(k, now);
         }
-      } else if (last) { v.onScreenDisplay.clearTitle(); sideShown.delete(k); }
+      } else if (last) clearSide(v);
     } catch { /* ignore */ }
   }
 }
@@ -449,8 +454,11 @@ function styleForm(p) {
     .then((r) => {
       if (r.canceled || !r.formValues) return;
       S.style.set(k, Number(r.formValues[0]) || 0);
+      const wasOn = sideOf(k);
       S.side.set(k, !!r.formValues[1]);
-      save(); updateSide();
+      save();
+      if (wasOn && !sideOf(k)) clearSide(p); // ปิดแล้วต้องหายทันที
+      updateSide();
       p.sendMessage(`§b[ไมค์] §fสัญลักษณ์: §e${STYLES[styleOf(k)]}§f • ข้างจอ: ${onoff(sideOf(k))}`);
     });
 }

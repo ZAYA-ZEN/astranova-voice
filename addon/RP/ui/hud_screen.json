@@ -4,8 +4,6 @@
   "hud_title_text": {
     "type": "panel",
     "size": [ "100%", "100%" ],
-    "alpha": 1,
-    "propagate_alpha": false,
     "controls": [
       {
         "astra_side": {

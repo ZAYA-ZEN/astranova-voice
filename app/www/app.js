@@ -735,6 +735,39 @@ function renderHost() {
     if (bb) bb.onclick = startBridge;
   });
 }
+// เซิร์ฟเวอร์เช่า (mcsv / BDS): ใช้แอดออนแบบเซิฟ ไม่ต้องพิมพ์ /wsserver
+const PERMS = JSON.stringify({ allowed_modules: ["@minecraft/server-gametest", "@minecraft/server", "@minecraft/server-ui", "@minecraft/server-admin", "@minecraft/server-editor", "@minecraft/server-net"] }, null, 2);
+const ADDON_URL = "https://github.com/ZAYA-ZEN/astranova-voice/releases/latest/download/AstraNovaVoice-Server.mcaddon";
+function renderServer() {
+  const cmds = [
+    ["/astra:voice", "เปิดเมนูไมค์ (แอดมินเห็นแผงควบคุม)"],
+    ["/astra:vfx", "เปลี่ยนเสียง (เฉพาะ OP)"],
+    ["/astra:link 123456", "ลิงก์แอปด้วยรหัส (ถ้าไม่อยากใส่ชื่อ)"],
+    ["/scriptevent voice:range 30", "ตั้งระยะเสียงทั้งเซิฟ (0-100)"],
+    ["/scriptevent voice:announce สวัสดีทุกคน", "ประกาศถึงทุกคน"],
+    ["/scriptevent voice:give", "รับไอเท็มไมค์"],
+  ];
+  const html = `
+    <ol class="steps">
+      <li>ดาวน์โหลด <a href="${ADDON_URL}" target="_blank" rel="noopener" style="color:#c4b5fd">AstraNovaVoice-Server.mcaddon</a> (ตัวสำหรับเซิฟ ไม่ใช่ตัวโลกธรรมดา)</li>
+      <li>ใส่แพ็กในโลก แล้ว <b>เปิด Beta APIs</b> (Experiments) — ถ้าเซิฟไม่มีปุ่มนี้ ให้เปิดในโลกบนเครื่องตัวเองก่อนแล้วค่อยอัปโหลดโลกขึ้นเซิฟ</li>
+      <li>ในไฟล์เซิฟ แก้ <code>config/default/permissions.json</code> ให้เป็นแบบนี้ (เพิ่ม <b>@minecraft/server-net</b>):</li>
+    </ol>
+    <div class="cmd" style="align-items:flex-start"><code style="white-space:pre;overflow-x:auto">${esc(PERMS)}</code><button data-copy="${esc(PERMS)}">คัดลอก</button></div>
+    <ol class="steps" start="4">
+      <li>รีสตาร์ทเซิฟ — แอดมินจะเห็นข้อความ <b>"เชื่อมต่อระบบเสียงสำเร็จ"</b></li>
+      <li>ผู้เล่นเปิดแอป ใส่ชื่อ Xbox แล้วเข้าเซิฟพูดได้เลย <b>ไม่ต้องพิมพ์ /wsserver</b></li>
+    </ol>
+    <b style="display:block;margin-top:10px">คำสั่งในเซิฟ</b>
+    ${cmds.map(([c, d]) => `<div class="cmd"><code>${esc(c)}</code><button data-copy="${esc(c)}">คัดลอก</button></div><div class="hint" style="margin:-2px 0 4px">${esc(d)}</div>`).join("")}
+    <div class="hint" style="margin-top:8px">คำสั่ง /scriptevent ต้องเป็น OP • Realms ใช้แบบเซิฟนี้ไม่ได้ (ไม่มี server-net) ให้ใช้แบบโลกธรรมดาแทน</div>`;
+  document.querySelectorAll(".srvBody").forEach((el) => {
+    el.innerHTML = html;
+    el.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = () => copyText(b.dataset.copy, b)));
+  });
+}
+renderServer();
+
 async function startBridge() {
   const target = mcUrl();
   try {

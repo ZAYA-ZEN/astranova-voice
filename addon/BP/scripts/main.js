@@ -302,7 +302,7 @@ function toggleSelfMic(p) {
   p.playSound(on ? "random.orb" : "random.click", { pitch: on ? 1.4 : 0.7 });
   if (on && S.muted.has(k)) p.sendMessage("§c[ไมค์] คุณถูกแอดมินปิดไมค์อยู่");
   if (on && !S.micEnabled && !S.mega.has(k)) p.sendMessage("§c[ไมค์] ตอนนี้แอดมินปิดไมค์ทั้งเซิฟอยู่");
-  if (!linkedSet.has(k)) p.sendMessage("§e[ไมค์] คุณยังไม่ได้เชื่อมแอปไมค์ — เปิดแอปแล้วพิมพ์ /astra:link รหัส");
+  if (!linkedSet.has(k)) p.sendMessage("§e[ไมค์] คุณยังไม่ได้เชื่อมแอปไมค์ — เปิดแอปแล้วใส่ชื่อ Xbox (หรือ /astra:link รหัส)");
 }
 
 function openPlayerMenu(p) {

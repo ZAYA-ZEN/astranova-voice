@@ -162,6 +162,7 @@ function applyGame(body) {
   for (const k of ["muted", "deaf", "mega", "self"]) game[k] = new Set((body[k] || []).map(key));
   game.players = new Map((body.players || []).map((p) => [key(p.n), p]));
   game.water = new Set((body.players || []).filter((p) => p.w).map((p) => key(p.n)).concat((body.water || []).map(key)));
+  game.vfx = new Map(Object.entries(body.vfx || {}).map(([n, v]) => [key(n), Math.max(0, Math.min(7, Number(v) || 0))]));
   game.occ = new Map(Object.entries(body.occ || {}).map(([k, v]) => [k.split("|").map(key).sort().join("|"), Number(v) || 0]));
   for (const a of body.announce || []) broadcastJSON({ t: "announce", text: String(a.text).slice(0, 300), by: a.by });
 
@@ -281,6 +282,13 @@ mcWss.on("connection", (ws, req) => {
     // ใต้น้ำ (แอดออนติด tag ให้)
     const w = await cmd("testfor @a[tag=astra_water]");
     mcWorld.water = w && w.statusCode === 0 && Array.isArray(w.victim) ? w.victim : [];
+    // เปลี่ยนเสียง (แอดมิน): แอดออนติด tag astra_vfx + astra_vfx_N
+    const vf = {}, any = await cmd("testfor @a[tag=astra_vfx]");
+    if (any && any.statusCode === 0) for (let i = 1; i <= 7; i++) {
+      const r = await cmd(`testfor @a[tag=astra_vfx_${i}]`);
+      if (r && r.statusCode === 0 && Array.isArray(r.victim)) for (const n of r.victim) vf[n] = i;
+    }
+    mcWorld.vfx = vf;
     // คำสั่ง /astra:link ในเกม → แอดออนติด tag astra_lc_รหัส
     for (const code of [...linkCodes.keys()]) {
       const r = await cmd(`testfor @a[tag=astra_lc_${code}]`);
@@ -338,6 +346,7 @@ mcWss.on("connection", (ws, req) => {
       settings: mcWorld.cfg || { range: cfg.defaultRange, micEnabled: true, hearEnabled: true },
       ...mcWorld.flags,
       water: mcWorld.water,
+      vfx: mcWorld.vfx || {},
       occ: mcWorld.occ,
       players: [...mcWorld.pos.values()],
     });
@@ -513,7 +522,7 @@ setInterval(() => {
       t: "status", gameOnline: gameOnline(), inGame: !!me, range: range(),
       micEnabled: game.settings.micEnabled, hearEnabled: game.settings.hearEnabled, personal: game.settings.personal !== false,
       adminMuted: game.muted.has(c.key), adminDeaf: game.deaf.has(c.key), mega: game.mega.has(c.key),
-      itemMuted: game.self.has(c.key), canSpeak: canSpeak(c), canHear: canHear(c), nearby,
+      itemMuted: game.self.has(c.key), canSpeak: canSpeak(c), canHear: canHear(c), nearby, vfx: (game.vfx && game.vfx.get(c.key)) || 0,
     });
   }
 }, 500);

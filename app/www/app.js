@@ -92,6 +92,7 @@ function webEngine() {
   let remoteLvl = 0, remoteUntil = 0, wakeLock = null, aecRouted = false;
   let encCodecs = ["adpcm"];               // เซิร์ฟเวอร์บอกว่าต้องส่งแบบไหน
   const adpcmEnc = C ? new C.Encoder() : null;
+  const vfx = window.AstraVfx ? window.AstraVfx.create() : null;
   let opusEnc = null, opusTs = 0, opusOk = false;
   const txByTs = new Map();
 
@@ -270,6 +271,7 @@ registerProcessor("mcv-cap", Cap);`;
     if (tx && !transmitting && preroll && !opts.ptt && (encCodecs.includes("adpcm") || !opusOk) && ws) {
       const a = adpcmEnc.encode(preroll); const out = new Uint8Array(1 + a.length); out[0] = C.ADPCM; out.set(a, 1); ws.send(out);
     }
+    if (opts.vfx && vfx) vfx.process(s16, opts.vfx); // ตัวเปลี่ยนเสียง (แอดมิน)
     sendAudio(s16, tx);
     preroll = s16; transmitting = tx;
     onLevel(rms, tx);
@@ -391,6 +393,7 @@ function pushOpts() {
     muted, deaf, ptt: mode === "ptt", pttDown,
     threshold: threshold(), boost: boost / 100, vol: vol / 100, echoGate,
     inputId: store.get("inputId", ""), outputId: store.get("outputId", ""), spkVol: slotVolumes(),
+    vfx: (status && status.vfx) || 0,
   });
 }
 
@@ -504,6 +507,7 @@ function renderBadges() {
     if (s.adminDeaf) add("bad", "แอดมินปิดหูคุณ");
     if (s.itemMuted) add("warn", "ปิดไมค์ด้วยไอเท็มในเกม");
     if (s.mega) add("ok", "📢 โทรโข่ง");
+    if (s.vfx && window.AstraVfx) add("warn", "🎭 เสียง: " + window.AstraVfx.NAMES[s.vfx]);
   }
   if (NATIVE) add("ok", "ทำงานเบื้องหลังได้");
   $("badges").innerHTML = out.join("");

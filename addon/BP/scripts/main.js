@@ -33,6 +33,7 @@ const S = {
   deaf: new Set(), // แอดมินปิดหูรายคน
   mega: new Set(), // โทรโข่ง: พูดแล้วได้ยินทั้งเซิฟ
   self: new Set(), // ผู้เล่นปิดไมค์ตัวเองด้วยไอเท็ม
+  vfx: new Map(), // เปลี่ยนเสียง (แอดมินเท่านั้น): ชื่อตัวเล็ก -> แบบเสียง
 };
 let announceQueue = [];
 let busy = false;
@@ -57,6 +58,7 @@ function save() {
         range: S.range, micEnabled: S.micEnabled, hearEnabled: S.hearEnabled, showTalking: S.showTalking, showTalkTag: S.showTalkTag,
         ...Object.fromEntries(["occEnabled", "occThin", "occThick", "occBlock", "waterEnabled", "stereo", "personal", "falloff"].map((k) => [k, S[k]])),
         muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
+        vfx: Object.fromEntries(S.vfx),
       })
     );
   } catch (e) { console.warn("[MCVoice] save failed " + e); }
@@ -70,6 +72,7 @@ function load() {
     for (const k of ["micEnabled", "hearEnabled", "showTalking", "showTalkTag"]) if (typeof o[k] === "boolean") S[k] = o[k];
     for (const k of ["occEnabled", "occThin", "occThick", "occBlock", "waterEnabled", "stereo", "personal", "falloff"]) if (typeof o[k] === typeof S[k]) S[k] = o[k];
     for (const k of ["muted", "deaf", "mega", "self"]) if (Array.isArray(o[k])) S[k] = new Set(o[k]);
+    if (o.vfx && typeof o.vfx === "object") S.vfx = new Map(Object.entries(o.vfx).map(([k, v]) => [k, Number(v) || 0]));
   } catch (e) { console.warn("[MCVoice] load failed " + e); }
 }
 const clampRange = (v) => Math.max(0, Math.min(CONFIG.maxRange, Math.round(Number(v) || 0)));
@@ -100,9 +103,33 @@ function buildPayload() {
     muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
     players,
     claims: [...claims.values()].map((c) => [c.n, c.code]),
+    vfx: vfxNow(),
     occ: env.occ,
     announce: announceQueue,
   };
+}
+
+const VFX_NAMES = ["ปกติ (ไม่เปลี่ยน)", "ยักษ์ (เสียงต่ำ)", "ชิปมังก์ (เสียงสูง)", "หุ่นยนต์", "ปีศาจ", "วิทยุสื่อสาร", "ก้องในถ้ำ", "เด็ก"];
+// เปลี่ยนเสียงใช้ได้เฉพาะคนที่เป็นแอดมิน (OP) ตอนนี้เท่านั้น
+function vfxNow() {
+  const out = {};
+  for (const p of world.getAllPlayers()) { const v = S.vfx.get(key(p.name)); if (v && isAdmin(p)) out[p.name] = v; }
+  return out;
+}
+function vfxForm(p) {
+  if (!isAdmin(p)) return p.sendMessage("§c[ไมค์] เปลี่ยนเสียงได้เฉพาะแอดมิน (OP) เท่านั้น");
+  const cur = S.vfx.get(key(p.name)) || 0;
+  new ModalFormData()
+    .title("§l§dเปลี่ยนเสียง §7(แอดมิน)")
+    .dropdown(`เสียงของคุณตอนนี้: §e${VFX_NAMES[cur]}§r\nเลือกเสียงใหม่ (คนอื่นจะได้ยินเสียงที่เปลี่ยนแล้ว)`, VFX_NAMES, { defaultValueIndex: cur })
+    .show(p)
+    .then((r) => {
+      if (r.canceled || !r.formValues) return;
+      const v = Number(r.formValues[0]) || 0;
+      if (v) S.vfx.set(key(p.name), v); else S.vfx.delete(key(p.name));
+      save();
+      p.sendMessage(`§d[ไมค์] §fเปลี่ยนเสียงเป็น §e${VFX_NAMES[v]}§7 (มีผลในแอปภายใน 1-2 วินาที)`);
+    });
 }
 
 // ---------------- ใต้น้ำ + ผนังกั้นเสียง ----------------
@@ -153,6 +180,14 @@ function updateEnv() {
   env.water = water; env.occ = occ;
   if (transport.mode === "world") {
     for (const p of ps) { try { if (water.has(key(p.name))) p.addTag("astra_water"); else p.removeTag("astra_water"); } catch {} }
+    const vf = vfxNow();
+    for (const p of ps) {
+      try {
+        const v = vf[p.name] || 0;
+        for (let i = 1; i < VFX_NAMES.length; i++) if (i !== v && p.hasTag("astra_vfx_" + i)) p.removeTag("astra_vfx_" + i);
+        if (v) { p.addTag("astra_vfx"); p.addTag("astra_vfx_" + v); } else p.removeTag("astra_vfx");
+      } catch {}
+    }
     try {
       const sb = world.scoreboard;
       const obj = sb.getObjective("astra_occ") ?? sb.addObjective("astra_occ", "Astra Walls");
@@ -310,6 +345,7 @@ function openAdmin(p) {
     .button("§dประกาศ", "textures/items/book_writable")
     .button(`ไอคอนไมค์บนหัวคนพูด: ${onoff(S.showTalking)}\n§8ป้ายชื่อ ((♪)): ${onoff(S.showTalkTag)}`, "textures/items/sign")
     .button("รับไอเท็มไมค์ / แจกทุกคน", "textures/items/iron_ingot")
+    .button(`§dเปลี่ยนเสียง §8(ของคุณ: ${VFX_NAMES[S.vfx.get(key(p.name)) || 0]})`, "textures/items/goat_horn")
     .button(`§9กำแพงกั้นเสียง & เอฟเฟกต์\n§8ผนัง: ${S.occEnabled ? "§aเปิด" : "§cปิด"} §8• ใต้น้ำ: ${S.waterEnabled ? "§aเปิด" : "§cปิด"}`, "textures/blocks/stonebrick")
     .show(p)
     .then((r) => {
@@ -324,7 +360,8 @@ function openAdmin(p) {
         case 4: return announceForm(p);
         case 5: return talkIconMenu(p);
         case 6: return giveMenu(p);
-        case 7: return fxForm(p);
+        case 7: return vfxForm(p);
+        case 8: return fxForm(p);
       }
     });
 }
@@ -525,6 +562,14 @@ system.beforeEvents.startup.subscribe((ev) => {
     const p = origin.sourceEntity;
     if (p?.typeId !== "minecraft:player") return { status: CustomCommandStatus.Failure, message: "ใช้ได้เฉพาะผู้เล่น" };
     system.run(() => claimLink(p, code));
+    return { status: CustomCommandStatus.Success };
+  });
+  reg.registerCommand({
+    name: "astra:vfx", description: "เปลี่ยนเสียง (เฉพาะแอดมิน/OP)",
+    permissionLevel: CommandPermissionLevel.Any, cheatsRequired: false,
+  }, (origin) => {
+    const p = origin.sourceEntity;
+    if (p?.typeId === "minecraft:player") system.run(() => vfxForm(p));
     return { status: CustomCommandStatus.Success };
   });
   reg.registerCommand({

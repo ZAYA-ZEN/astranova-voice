@@ -57,6 +57,8 @@ public class VoiceEngine {
     // ค่าจาก UI
     public volatile boolean active = false, muted = false, deaf = false, ptt = false, pttDown = false, echoGate = true;
     public volatile float threshold = 0.02f, boost = 1f, vol = 1f;
+    public volatile int vfxId = 0; // ตัวเปลี่ยนเสียง (แอดมิน)
+    private final VoiceFx vfx = new VoiceFx();
     public volatile String inputId = "", outputId = "";
     public final Map<Integer, Float> spkVol = new ConcurrentHashMap<>();
 
@@ -346,6 +348,7 @@ public class VoiceEngine {
                     t = now < hang;
                 }
             }
+            if (vfxId > 0) vfx.process(buf, FRAME, vfxId);
             // Opus: ป้อนทุกเฟรมต่อเนื่อง ส่งเฉพาะตอนพูด
             if (needOpus) {
                 try {

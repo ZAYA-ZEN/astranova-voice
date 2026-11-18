@@ -274,7 +274,7 @@ registerProcessor("mcv-cap", Cap);`;
       const a = adpcmEnc.encode(preroll); const out = new Uint8Array(1 + a.length); out[0] = C.ADPCM; out.set(a, 1); ws.send(out);
     }
     if ((opts.ns ?? 1) >= 2 && vfx) vfx.denoise(s16); // ตัดเสียงรบกวนแบบแรง
-    if (opts.vfx && vfx) vfx.process(s16, opts.vfx); // ตัวเปลี่ยนเสียง (แอดมิน)
+    if (opts.fx && vfx) vfx.process(s16, opts.fx); // ตัวแปลงเสียง (สูตรจากเซิร์ฟเวอร์)
     sendAudio(s16, tx);
     preroll = s16; transmitting = tx;
     onLevel(rms, tx);
@@ -401,7 +401,7 @@ function pushOpts() {
     muted, deaf, ptt: mode === "ptt", pttDown,
     threshold: threshold(), boost: boost / 100, vol: vol / 100, echoGate,
     inputId: store.get("inputId", ""), outputId: store.get("outputId", ""), spkVol: slotVolumes(),
-    vfx: (status && status.vfx) || 0,
+    fx: (status && status.fx) || null,
     ns: nsLevel,
   });
 }
@@ -465,6 +465,7 @@ function onMsg(m) {
       if (m.maxRange != null) maxRange = m.maxRange;
       renderMyRange();
       if (myRange != null) engine.send({ t: "range", v: myRange });
+      engine.send({ t: "caps", fx: 2 }); // แอปนี้รองรับตัวแปลงเสียงแบบสูตร
       show("scrMain"); renderAcct();
       Promise.resolve(engine.startAudio()).then(() => { pushOpts(); sendState(); loadDevices(); });
       break;
@@ -516,7 +517,7 @@ function renderBadges() {
     if (s.adminDeaf) add("bad", "แอดมินปิดหูคุณ");
     if (s.itemMuted) add("warn", "ปิดไมค์ด้วยไอเท็มในเกม");
     if (s.mega) add("ok", "📢 โทรโข่ง");
-    if (s.vfx && window.AstraVfx) add("warn", "🎭 เสียง: " + window.AstraVfx.NAMES[s.vfx]);
+    if (s.vfx && s.vfxName) add("warn", "🎭 เสียง: " + s.vfxName);
   }
   if (NATIVE) add("ok", "ทำงานเบื้องหลังได้");
   $("badges").innerHTML = out.join("");

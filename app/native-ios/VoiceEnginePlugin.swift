@@ -67,7 +67,11 @@ public class VoiceEnginePlugin: CAPPlugin, CAPBridgedPlugin {
         if let v = call.getBool("pttDown") { eng.pttDown = v }
         if let v = call.getDouble("threshold") { eng.threshold = Float(v) }
         if let v = call.getDouble("boost") { eng.boost = Float(v) }
-        if let v = call.getInt("vfx") { eng.vfxId = v }
+        if let raw = call.options["fx"] {
+            // อาร์เรย์ 23 ค่าจากเซิร์ฟเวอร์ หรือ null = เสียงปกติ
+            let nums = (raw as? [Any])?.compactMap { ($0 as? NSNumber)?.doubleValue } ?? []
+            eng.fxParams = nums.count >= 23 ? nums : nil
+        }
         if let v = call.getInt("ns") { eng.nsLevel = v }
         if let v = call.getDouble("vol") { eng.vol = Float(v) }
         if let v = call.getBool("echoGate") { eng.echoGate = v }
@@ -94,7 +98,13 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
     // ค่าจาก UI
     var active = false, muted = false, deaf = false, ptt = false, pttDown = false
     var threshold: Float = 0.02, boost: Float = 1, vol: Float = 1
-    var vfxId = 0 // ตัวเปลี่ยนเสียง (แอดมิน)
+    private let fxLock = NSLock()
+    private var _fx: [Double]? = nil
+    /// สูตรตัวแปลงเสียงจากเซิร์ฟเวอร์ (nil = ปกติ) — ตั้งจาก UI อ่านจากเธรดเสียง จึงล็อกไว้
+    var fxParams: [Double]? {
+        get { fxLock.lock(); defer { fxLock.unlock() }; return _fx }
+        set { fxLock.lock(); _fx = newValue; fxLock.unlock() }
+    }
     var nsLevel = 1 // ตัดเสียงรบกวน: 0 ปิด, 1 ปกติ (ระบบ), 2 แรง
     private let vfx = AstraVoiceFx()
     var echoGate = true
@@ -371,7 +381,7 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
             }
         }
         if nsLevel >= 2 { vfx.denoise(&pcm) }
-        if vfxId > 0 { vfx.process(&pcm, vfxId) }
+        if let fx = fxParams { vfx.process(&pcm, fx) }
         if tx, let t = task {
             if !transmitting, !ptt, let prev = prevFrame { t.send(.data(packAdpcm(prev))) { _ in } }
             t.send(.data(packAdpcm(pcm))) { _ in }
@@ -465,42 +475,76 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
 }
 
 
-// MARK: - ตัวเปลี่ยนเสียง (แอดมิน) + ตัดเสียงรบกวนแบบแรง — ต้องตรงกับ www/vfx.js
+// MARK: - ตัวแปลงเสียงแบบปรับค่าได้ + ตัดเสียงรบกวนแบบแรง — ต้องตรงกับ www/vfx.js
+// สูตรเสียงมาจากเซิร์ฟเวอร์ (server/voices.js) เป็นอาร์เรย์ 23 ค่า
 final class AstraVoiceFx {
-    private static let RATE = 16000.0, N = 4096, W = 1200.0, EL = 3200
-    private static let PITCH: [Float] = [1, 0.7, 1.6, 1, 0.58, 1, 1, 1.3, 1, 1.25, 1.15, 0.75, 1]
-    private static func co(_ f: Double) -> Double { return exp(-2 * Double.pi * f / 16000) }
-    private let HP5 = co(400), LP5 = co(2800), HP8 = co(500), LP8 = co(2500), HP12 = co(600), LP12 = co(3500), DNHP = co(120)
-    private var buf = [Float](repeating: 0, count: 4096)
-    private var eb = [Float](repeating: 0, count: 3200)
-    private var w = 0, ew = 0, t = 0
-    private var ph = 0.0, hpY = 0.0, hpX = 0.0, lp = 0.0, dnY = 0.0, dnX = 0.0, dnG = 1.0
+    private static let RATE = 16000.0, EL = 8000, TAU = 2 * Double.pi
+    private static func co(_ f: Double) -> Double { return exp(-TAU * f / RATE) }
+    private let DNHP = co(120), LOWC = co(900)
 
-    private func tap(_ p: Double) -> Float {
-        var pos = Double(w) - (p * AstraVoiceFx.W + 1)
-        while pos < 0 { pos += Double(AstraVoiceFx.N) }
-        let i = Int(pos.rounded(.down)), f = Float(pos - Double(i))
-        let a = buf[i % AstraVoiceFx.N], b = buf[(i + 1) % AstraVoiceFx.N]
-        return a + (b - a) * f
+    /// ตัวเปลี่ยนระดับเสียงแบบหน้าต่างหน่วงเวลา 2 หัวอ่าน
+    private final class Shifter {
+        static let N = 4096, W = 1200.0
+        var buf = [Float](repeating: 0, count: 4096)
+        var w = 0
+        var ph = 0.0
+        func tap(_ p: Double) -> Double {
+            var pos = Double(w) - (p * Shifter.W + 1)
+            while pos < 0 { pos += Double(Shifter.N) }
+            let i = Int(floor(pos)), f = pos - Double(i)
+            let a = Double(buf[i % Shifter.N]), b = Double(buf[(i + 1) % Shifter.N])
+            return a + (b - a) * f
+        }
+        func run(_ x: Double, _ r: Double) -> Double {
+            buf[w] = Float(x)
+            ph += (1 - r) / Shifter.W
+            ph -= floor(ph)
+            let p2 = (ph + 0.5).truncatingRemainder(dividingBy: 1)
+            let s1 = sin(Double.pi * ph), s2 = sin(Double.pi * p2)
+            let y = tap(ph) * s1 * s1 + tap(p2) * s2 * s2
+            w = (w + 1) % Shifter.N
+            return y
+        }
     }
-    private func pitch(_ x: Float, _ r: Float) -> Float {
-        buf[w] = x
-        ph += Double(1 - r) / AstraVoiceFx.W
-        ph -= ph.rounded(.down)
-        let p2 = (ph + 0.5).truncatingRemainder(dividingBy: 1)
-        let s1 = sin(Double.pi * ph), s2 = sin(Double.pi * p2)
-        let y = Float(Double(tap(ph)) * s1 * s1 + Double(tap(p2)) * s2 * s2)
-        w = (w + 1) % AstraVoiceFx.N
-        return y
+
+    /// ฟิลเตอร์ biquad (สูตร RBJ) — type: 0 lowpass, 1 highpass, 2 bandpass
+    private final class Biquad {
+        var b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0, x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
+        func set(_ type: Int, _ freq: Double, _ q: Double) {
+            let f = min(max(freq, 20), AstraVoiceFx.RATE * 0.45)
+            let w0 = AstraVoiceFx.TAU * f / AstraVoiceFx.RATE, c = cos(w0), al = sin(w0) / (2 * q)
+            var n0 = 0.0, n1 = 0.0, n2 = 0.0
+            if type == 0 { n0 = (1 - c) / 2; n1 = 1 - c; n2 = (1 - c) / 2 }
+            else if type == 1 { n0 = (1 + c) / 2; n1 = -(1 + c); n2 = (1 + c) / 2 }
+            else { n0 = al; n1 = 0; n2 = -al }
+            let a0 = 1 + al
+            b0 = n0 / a0; b1 = n1 / a0; b2 = n2 / a0; a1 = (-2 * c) / a0; a2 = (1 - al) / a0
+        }
+        func run(_ x: Double) -> Double {
+            let y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+            x2 = x1; x1 = x; y2 = y1; y1 = y
+            return y
+        }
     }
-    private func band(_ x: Float, _ ha: Double, _ la: Double) -> Float {
-        hpY = ha * (hpY + Double(x) - hpX); hpX = Double(x)
-        lp = lp + (1 - la) * (hpY - lp)
-        return Float(lp)
+
+    private let sh1 = Shifter(), sh2 = Shifter()
+    private let hpF = Biquad(), lpF = Biquad(), pkF = Biquad()
+    private var eb = [Float](repeating: 0, count: 8000)
+    private var ew = 0, hold = 0
+    private var rnd: UInt32 = 12345
+    private var vibPh = 0.0, ringPh = 0.0, tremPh = 0.0, low = 0.0, env = 0.0, held = 0.0
+    private var dnY = 0.0, dnX = 0.0, dnG = 1.0
+    private var P: [Double] = []
+
+    private func load(_ fx: [Double]) {
+        if P == fx { return }
+        P = fx
+        if P[7] > 0 { hpF.set(1, P[7], 0.707) }
+        if P[8] > 0 { lpF.set(0, P[8], 0.707) }
+        if P[9] > 0 { pkF.set(2, P[9], 1.5) }
     }
-    private func echo(_ x: Float, _ fb: Float) -> Float {
-        let d = eb[ew]; let y = x + 0.5 * d; eb[ew] = x + fb * d; ew = (ew + 1) % AstraVoiceFx.EL; return y
-    }
+
+    /// ตัดเสียงรบกวนแบบแรง: ตัดเสียงหึ่งต่ำกว่า 120Hz + กดเสียงเบาๆ ระหว่างคำพูด
     func denoise(_ pcm: inout [Int16]) {
         var sq = 0.0
         for i in 0..<pcm.count {
@@ -514,28 +558,59 @@ final class AstraVoiceFx {
         let step = (target - dnG) / Double(max(1, pcm.count))
         for i in 0..<pcm.count { dnG += step; pcm[i] = Int16(max(-32768, min(32767, (Double(pcm[i]) * dnG).rounded()))) }
     }
-    func process(_ pcm: inout [Int16], _ id: Int) {
-        guard id > 0, id < AstraVoiceFx.PITCH.count else { return }
-        let r = AstraVoiceFx.PITCH[id]
+
+    /// fx = อาร์เรย์ 23 ค่าจากเซิร์ฟเวอร์
+    func process(_ pcm: inout [Int16], _ fx: [Double]) {
+        guard fx.count >= 23 else { return }
+        load(fx)
+        let pitch = P[0], vibRate = P[1], vibDepth = P[2], dbl = P[3], dblMix = P[4], ringHz = P[5], ringMix = P[6]
+        let hp = P[7], lp = P[8], peakHz = P[9], peakGain = P[10], drive = P[11], bits = P[12], down = P[13]
+        let tremRate = P[14], tremDepth = P[15], echoMs = P[16], echoFb = P[17], echoMix = P[18], noise = P[19]
+        let gain = P[20], bass = P[21], treble = P[22]
+        let RATE = AstraVoiceFx.RATE, TAU = AstraVoiceFx.TAU, EL = AstraVoiceFx.EL
+        let ed = min(EL - 1, max(1, Int((echoMs * RATE / 1000).rounded())))
+        let q = bits > 0 ? pow(2, bits - 1) : 0
+        let dn = max(1, Int(down.rounded()))
+        let dTanh = drive > 0 ? tanh(drive) : 1
         for i in 0..<pcm.count {
-            var x = Float(pcm[i]) / 32768
-            if r != 1 { x = pitch(x, r) }
-            let tt = Double(t) / AstraVoiceFx.RATE
-            switch id {
-            case 3: x = Float(Double(x) * sin(2 * Double.pi * 55 * tt) * 1.6)
-            case 4: x = tanhf(x * 1.8) * 0.8
-            case 5: x = tanhf(band(x, HP5, LP5) * 4) * 0.6
-            case 6: x = echo(x, 0.4) * 0.8
-            case 8: x = band(x, HP8, LP8) * 1.4
-            case 9: x = Float(Double(x) * (0.55 + 0.45 * sin(2 * Double.pi * 30 * tt)) * 1.2)
-            case 10: x = Float(Double(echo(x, 0.55)) * 0.7 * (0.85 + 0.15 * sin(2 * Double.pi * 5 * tt)))
-            case 11: x = tanhf(x * 3) * 0.6
-            case 12: x = tanhf(band(x, HP12, LP12) * 5) * 0.5
-            default: break
+            var x = Double(pcm[i]) / 32768
+            // 1) ระดับเสียง + เสียงสั่น
+            var r = pitch
+            if vibRate > 0 { vibPh += vibRate / RATE; vibPh -= floor(vibPh); r *= 1 + vibDepth * sin(TAU * vibPh) }
+            let dry = x
+            if r != 1 { x = sh1.run(x, r) }
+            // 2) เสียงที่สองซ้อน
+            if dbl > 0 { x = x * (1 - dblMix * 0.5) + sh2.run(dry, dbl) * dblMix }
+            // 3) ทุ้ม/แหลม
+            if bass != 1 || treble != 1 { low += (1 - LOWC) * (x - low); x = low * bass + (x - low) * treble }
+            // 4) ตัดย่านเสียง + เน้นย่าน
+            if hp > 0 { x = hpF.run(x) }
+            if lp > 0 { x = lpF.run(x) }
+            if peakHz > 0 { x += pkF.run(x) * peakGain }
+            // 5) หุ่นยนต์
+            if ringHz > 0 { ringPh += ringHz / RATE; ringPh -= floor(ringPh); x = x * (1 - ringMix) + x * sin(TAU * ringPh) * ringMix * 1.4 }
+            // 6) เสียงแตก + ลดคุณภาพ
+            if drive > 0 { x = tanh(x * drive) / dTanh }
+            if q > 0 { x = (x * q).rounded() / q }
+            if dn > 1 { if hold <= 0 { held = x; hold = dn }; hold -= 1; x = held }
+            // 7) เสียงขาดๆ หายๆ
+            if tremRate > 0 { tremPh += tremRate / RATE; tremPh -= floor(tremPh); x *= 1 - tremDepth * 0.5 * (1 - sin(TAU * tremPh)) }
+            // 8) เสียงลม/กระซิบ ตามความดังของเสียงพูด
+            if noise > 0 {
+                let a = abs(dry); env += (a > env ? 0.05 : 0.002) * (a - env)
+                rnd = (rnd &* 1103515245 &+ 12345) & 0x7fffffff
+                x += noise * env * 3 * (Double(rnd) / Double(0x3fffffff) - 1)
             }
-            t = (t + 1) % Int(AstraVoiceFx.RATE)
-            let v = Int((x * 32767).rounded())
-            pcm[i] = Int16(max(-32768, min(32767, v)))
+            // 9) เสียงก้อง
+            if echoMs > 0 {
+                var rp = ew - ed; if rp < 0 { rp += EL }
+                let d = Double(eb[rp])
+                eb[ew] = Float(x + echoFb * d)
+                ew = (ew + 1) % EL
+                x = x + echoMix * d
+            }
+            x *= gain
+            pcm[i] = Int16(max(-32768, min(32767, (x * 32767).rounded())))
         }
     }
 }

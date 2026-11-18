@@ -2,6 +2,8 @@
 # สร้างไฟล์ .mcaddon 2 แบบ: เซิฟ BDS และ โลกธรรมดา (ใช้โค้ดชุดเดียวกัน)
 set -e
 cd "$(dirname "$0")"
+# รายชื่อเสียงให้ตรงกับเซิร์ฟเวอร์เสมอ
+if command -v node >/dev/null 2>&1; then node ../server/gen-voices.js >/dev/null; fi
 OUT=${1:-dist}; rm -rf "$OUT/tmp"; mkdir -p "$OUT/tmp/s" "$OUT/tmp/w"
 cp -r BP "$OUT/tmp/s/AstraNovaVoice_Server_BP"; cp -r RP "$OUT/tmp/s/AstraNovaVoice_RP"
 mkdir -p "$OUT/tmp/w/AstraNovaVoice_World_BP"

@@ -3,6 +3,7 @@
 // - แอปเชื่อมผ่าน WebSocket ส่งเสียง (PCM 16kHz) มา เซิฟคำนวณความดังตามระยะแล้วส่งต่อ
 "use strict";
 const http = require("http");
+const VOX = require("./voices.js"); // สูตรตัวแปลงเสียงทั้งหมด
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -172,7 +173,7 @@ function applyGame(body) {
   game.players = new Map([...seenAt].map(([k, v]) => [k, v.p]));
   game.water = new Set((body.players || []).filter((p) => p.w).map((p) => key(p.n)).concat((body.water || []).map(key)));
   game.prange = new Map(Object.entries(body.prange || {}).map(([n, v]) => [key(n), Math.max(1, Math.min(100, Number(v) || 100))]));
-  game.vfx = new Map(Object.entries(body.vfx || {}).map(([n, v]) => [key(n), Math.max(0, Math.min(12, Number(v) || 0))]));
+  game.vfx = new Map(Object.entries(body.vfx || {}).map(([n, v]) => [key(n), Math.max(0, Math.min(VOX.MAX_ID, Number(v) || 0))]));
   game.occ = new Map(Object.entries(body.occ || {}).map(([k, v]) => [k.split("|").map(key).sort().join("|"), Number(v) || 0]));
   for (const a of body.announce || []) broadcastJSON({ t: "announce", text: String(a.text).slice(0, 300), by: a.by });
 
@@ -315,6 +316,19 @@ mcWss.on("connection", (ws, req) => {
       }
       mcWorld.prange = pr; mcWorld.prv = a;
     }
+    // ตัวแปลงเสียง: คนที่มีแท็ก astra_vfx → อ่านเลขเสียงจากคะแนน astra_vfx (ค้นหาแบบแบ่งครึ่ง)
+    const anyV = await cmd("testfor @a[tag=astra_vfx]");
+    const vf = {};
+    if (anyV && anyV.statusCode === 0 && Array.isArray(anyV.victim)) {
+      await Promise.all(anyV.victim.map(async (n) => {
+        let lo = 1, hi = VOX.MAX_ID;
+        const has = await cmd(`scoreboard players test ${q(n)} astra_vfx ${lo} ${hi}`);
+        if (!has || has.statusCode !== 0) return;
+        while (lo < hi) { const m = (lo + hi) >> 1; const r = await cmd(`scoreboard players test ${q(n)} astra_vfx ${lo} ${m}`); if (!r) return; if (r.statusCode === 0) hi = m; else lo = m + 1; }
+        vf[n] = lo;
+      }));
+    }
+    mcWorld.vfx = vf;
     // คำสั่ง /astra:link ในเกม → แอดออนติด tag astra_lc_รหัส
     for (const code of [...linkCodes.keys()]) {
       const r = await cmd(`testfor @a[tag=astra_lc_${code}]`);
@@ -350,9 +364,8 @@ mcWss.on("connection", (ws, req) => {
       const a = ps[i], b = ps[j];
       if (a.d === b.d && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= R) pairs.push([key(a.n), key(b.n)].sort().join("|"));
     }
-    const [w, anyV, occRes] = await Promise.all([
+    const [w, occRes] = await Promise.all([
       cmd("testfor @a[tag=astra_water]"),
-      cmd("testfor @a[tag=astra_vfx]"),
       Promise.all(pairs.slice(0, 60).map(async (k) => {
         const r1 = await cmd(`scoreboard players test "${k}" astra_occ 1 *`);
         if (!r1 || r1.statusCode !== 0) return [k, []];
@@ -364,12 +377,6 @@ mcWss.on("connection", (ws, req) => {
     const occ = {};
     for (const [k, r] of occRes) { const lvl = r.filter((x) => x && x.statusCode === 0).length; if (lvl) occ[k] = lvl; }
     mcWorld.occ = occ;
-    const vf = {};
-    if (anyV && anyV.statusCode === 0) {
-      const rs = await Promise.all(Array.from({ length: 12 }, (_, i) => cmd(`testfor @a[tag=astra_vfx_${i + 1}]`)));
-      rs.forEach((r, i) => { if (r && r.statusCode === 0 && Array.isArray(r.victim)) for (const n of r.victim) vf[n] = i + 1; });
-    }
-    mcWorld.vfx = vf;
   };
   // ตำแหน่งผู้เล่นทุก 0.2 วินาที
   const fast = async () => {
@@ -459,6 +466,8 @@ wss.on("connection", (ws, req) => {
       c.name = cleanName(tn); c.key = key(tn); finishLink(c, false);
     } else if (m.t === "newcode" && !c.linked) {
       newLinkCode(c);
+    } else if (m.t === "caps") {
+      c.fx2 = Number(m.fx) >= 2; // แอปรุ่นใหม่: รับสูตรตัวแปลงเสียงจากเซิร์ฟเวอร์
     } else if (m.t === "range") {
       const v = Math.max(0, Math.min(cfg.maxRange, Number(m.v) || 0));
       c.talkRange = v;
@@ -551,6 +560,14 @@ function updateEncoders() {
 }
 setInterval(updateEncoders, 500);
 
+// ตัวแปลงเสียง: แอปรุ่นใหม่ได้สูตรเต็ม, แอปรุ่นเก่าได้เลขเสียงแบบเก่าที่ใกล้สุด (0-12)
+function vfxStatus(c) {
+  const id = (game.vfx && game.vfx.get(c.key)) || 0;
+  if (!id) return { vfx: 0, fx: null };
+  if (c.fx2) return { vfx: id, fx: VOX.fxArray(id), vfxName: VOX.voiceName(id) };
+  return { vfx: VOX.legacyId(id) };
+}
+
 // ส่งสถานะให้แอปทุก 0.5 วินาที
 setInterval(() => {
   const now = Date.now();
@@ -568,7 +585,7 @@ setInterval(() => {
       t: "status", gameOnline: gameOnline(), inGame: !!me, range: range(),
       micEnabled: game.settings.micEnabled, hearEnabled: game.settings.hearEnabled, personal: game.settings.personal !== false,
       adminMuted: game.muted.has(c.key), adminDeaf: game.deaf.has(c.key), mega: game.mega.has(c.key),
-      itemMuted: game.self.has(c.key), canSpeak: canSpeak(c), canHear: canHear(c), nearby, vfx: (game.vfx && game.vfx.get(c.key)) || 0,
+      itemMuted: game.self.has(c.key), canSpeak: canSpeak(c), canHear: canHear(c), nearby, ...vfxStatus(c),
     });
   }
 }, 500);
@@ -582,7 +599,7 @@ server.listen(cfg.port, () => {
   console.log(`  แอป    -> ws://<ไอพี>:${cfg.port}/voice`);
 });
 
-module.exports = { mix, game, server };
+module.exports = { mix, game, server, vfxStatus };
 
 // Render ฟรีจะหลับถ้าไม่มีคนเรียก ~15 นาที — ปลุกตัวเองทุก 10 นาที (ทำงานเฉพาะบน Render)
 if (process.env.RENDER_EXTERNAL_URL) {

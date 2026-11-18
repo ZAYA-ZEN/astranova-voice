@@ -1,44 +1,76 @@
 package com.astranova.voice;
 
-/** ตัวเปลี่ยนเสียง (แอดมิน) + ตัดเสียงรบกวนแบบแรง — ต้องตรงกับ www/vfx.js */
+/**
+ * ตัวแปลงเสียงแบบปรับค่าได้ + ตัดเสียงรบกวนแบบแรง — ต้องตรงกับ www/vfx.js
+ * สูตรเสียงมาจากเซิร์ฟเวอร์ (server/voices.js) เป็นอาร์เรย์ 23 ค่า
+ */
 final class VoiceFx {
-    private static final int RATE = 16000, N = 4096, W = 1200, EL = 3200;
-    private static final float[] PITCH = {1f, 0.7f, 1.6f, 1f, 0.58f, 1f, 1f, 1.3f, 1f, 1.25f, 1.15f, 0.75f, 1f};
-    private static double co(double f) { return Math.exp(-2 * Math.PI * f / RATE); }
-    private static final double HP5 = co(400), LP5 = co(2800), HP8 = co(500), LP8 = co(2500), HP12 = co(600), LP12 = co(3500), DN_HP = co(120);
-    private final float[] buf = new float[N];
+    private static final int RATE = 16000, EL = 8000;
+    private static final double TAU = 2 * Math.PI;
+    private static double co(double f) { return Math.exp(-TAU * f / RATE); }
+    private static final double DN_HP = co(120), LOWC = co(900);
+
+    /** ตัวเปลี่ยนระดับเสียงแบบหน้าต่างหน่วงเวลา 2 หัวอ่าน */
+    private static final class Shifter {
+        private static final int N = 4096, W = 1200;
+        private final float[] buf = new float[N];
+        private int w = 0;
+        private double ph = 0;
+        private double tap(double p) {
+            double pos = w - (p * W + 1);
+            while (pos < 0) pos += N;
+            int i = (int) Math.floor(pos);
+            double f = pos - i;
+            float a = buf[i % N], b = buf[(i + 1) % N];
+            return a + (b - a) * f;
+        }
+        double run(double x, double r) {
+            buf[w] = (float) x;
+            ph += (1 - r) / W;
+            ph -= Math.floor(ph);
+            double p2 = (ph + 0.5) % 1.0;
+            double s1 = Math.sin(Math.PI * ph), s2 = Math.sin(Math.PI * p2);
+            double y = tap(ph) * s1 * s1 + tap(p2) * s2 * s2;
+            w = (w + 1) % N;
+            return y;
+        }
+    }
+
+    /** ฟิลเตอร์ biquad (สูตร RBJ) — type: 0 lowpass, 1 highpass, 2 bandpass */
+    private static final class Biquad {
+        double b0 = 1, b1, b2, a1, a2, x1, x2, y1, y2;
+        void set(int type, double f, double q) {
+            f = Math.min(Math.max(f, 20), RATE * 0.45);
+            double w0 = TAU * f / RATE, c = Math.cos(w0), al = Math.sin(w0) / (2 * q);
+            double n0, n1, n2;
+            if (type == 0) { n0 = (1 - c) / 2; n1 = 1 - c; n2 = (1 - c) / 2; }
+            else if (type == 1) { n0 = (1 + c) / 2; n1 = -(1 + c); n2 = (1 + c) / 2; }
+            else { n0 = al; n1 = 0; n2 = -al; }
+            double a0 = 1 + al;
+            b0 = n0 / a0; b1 = n1 / a0; b2 = n2 / a0; a1 = (-2 * c) / a0; a2 = (1 - al) / a0;
+        }
+        double run(double x) {
+            double y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+            x2 = x1; x1 = x; y2 = y1; y1 = y;
+            return y;
+        }
+    }
+
+    private final Shifter sh1 = new Shifter(), sh2 = new Shifter();
+    private final Biquad hpF = new Biquad(), lpF = new Biquad(), pkF = new Biquad();
     private final float[] eb = new float[EL];
-    private int w = 0, ew = 0, t = 0;
-    private double ph = 0, hpY = 0, hpX = 0, lp = 0, dnY = 0, dnX = 0, dnG = 1;
+    private int ew = 0, hold = 0;
+    private long rnd = 12345;
+    private double vibPh = 0, ringPh = 0, tremPh = 0, low = 0, env = 0, held = 0;
+    private double dnY = 0, dnX = 0, dnG = 1;
+    private float[] P = null;
 
-    private float tap(double p) {
-        double pos = w - (p * W + 1);
-        while (pos < 0) pos += N;
-        int i = (int) Math.floor(pos);
-        double f = pos - i;
-        float a = buf[i % N], b = buf[(i + 1) % N];
-        return (float) (a + (b - a) * f);
-    }
-
-    private float pitch(float x, float r) {
-        buf[w] = x;
-        ph += (1 - r) / W;
-        ph -= Math.floor(ph);
-        double p2 = (ph + 0.5) % 1.0;
-        double s1 = Math.sin(Math.PI * ph), s2 = Math.sin(Math.PI * p2);
-        float y = (float) (tap(ph) * s1 * s1 + tap(p2) * s2 * s2);
-        w = (w + 1) % N;
-        return y;
-    }
-
-    private double band(double x, double ha, double la) {
-        hpY = ha * (hpY + x - hpX); hpX = x;
-        lp = lp + (1 - la) * (hpY - lp);
-        return lp;
-    }
-
-    private float echo(float x, float fb) {
-        float d = eb[ew]; float y = x + 0.5f * d; eb[ew] = x + fb * d; ew = (ew + 1) % EL; return y;
+    private void load(float[] fx) {
+        if (P != null && java.util.Arrays.equals(P, fx)) return;
+        P = fx.clone();
+        if (P[7] > 0) hpF.set(1, P[7], 0.707);
+        if (P[8] > 0) lpF.set(0, P[8], 0.707);
+        if (P[9] > 0) pkF.set(2, P[9], 1.5);
     }
 
     /** ตัดเสียงรบกวนแบบแรง: ตัดเสียงหึ่งต่ำกว่า 120Hz + กดเสียงเบาๆ ระหว่างคำพูด */
@@ -57,27 +89,58 @@ final class VoiceFx {
         for (int i = 0; i < n; i++) { dnG += step; pcm[i] = (short) Math.round(pcm[i] * dnG); }
     }
 
-    void process(short[] pcm, int n, int id) {
-        if (id <= 0 || id >= PITCH.length) return;
-        float r = PITCH[id];
+    /** fx = อาร์เรย์ 23 ค่าจากเซิร์ฟเวอร์ (null = ไม่เปลี่ยนเสียง) */
+    void process(short[] pcm, int n, float[] fx) {
+        if (fx == null || fx.length < 23) return;
+        load(fx);
+        final double pitch = P[0], vibRate = P[1], vibDepth = P[2], dbl = P[3], dblMix = P[4], ringHz = P[5], ringMix = P[6],
+            hp = P[7], lp = P[8], peakHz = P[9], peakGain = P[10], drive = P[11], bits = P[12], down = P[13],
+            tremRate = P[14], tremDepth = P[15], echoMs = P[16], echoFb = P[17], echoMix = P[18], noise = P[19],
+            gain = P[20], bass = P[21], treble = P[22];
+        int ed = (int) Math.min(EL - 1, Math.max(1, Math.round(echoMs * RATE / 1000)));
+        double q = bits > 0 ? Math.pow(2, bits - 1) : 0;
+        int dn = (int) Math.max(1, Math.round(down));
+        double dTanh = drive > 0 ? Math.tanh(drive) : 1;
         for (int i = 0; i < n; i++) {
-            float x = pcm[i] / 32768f;
-            if (r != 1f) x = pitch(x, r);
-            switch (id) {
-                case 3: x = (float) (x * Math.sin(2 * Math.PI * 55 * t / RATE) * 1.6); break;
-                case 4: x = (float) (Math.tanh(x * 1.8) * 0.8); break;
-                case 5: x = (float) (Math.tanh(band(x, HP5, LP5) * 4) * 0.6); break;
-                case 6: x = echo(x, 0.4f) * 0.8f; break;
-                case 8: x = (float) (band(x, HP8, LP8) * 1.4); break;
-                case 9: x = (float) (x * (0.55 + 0.45 * Math.sin(2 * Math.PI * 30 * t / RATE)) * 1.2); break;
-                case 10: x = (float) (echo(x, 0.55f) * 0.7 * (0.85 + 0.15 * Math.sin(2 * Math.PI * 5 * t / RATE))); break;
-                case 11: x = (float) (Math.tanh(x * 3) * 0.6); break;
-                case 12: x = (float) (Math.tanh(band(x, HP12, LP12) * 5) * 0.5); break;
-                default: break;
+            double x = pcm[i] / 32768.0;
+            // 1) ระดับเสียง + เสียงสั่น
+            double r = pitch;
+            if (vibRate > 0) { vibPh += vibRate / RATE; vibPh -= Math.floor(vibPh); r *= 1 + vibDepth * Math.sin(TAU * vibPh); }
+            final double dry = x;
+            if (r != 1) x = sh1.run(x, r);
+            // 2) เสียงที่สองซ้อน
+            if (dbl > 0) x = x * (1 - dblMix * 0.5) + sh2.run(dry, dbl) * dblMix;
+            // 3) ทุ้ม/แหลม
+            if (bass != 1 || treble != 1) { low += (1 - LOWC) * (x - low); x = low * bass + (x - low) * treble; }
+            // 4) ตัดย่านเสียง + เน้นย่าน
+            if (hp > 0) x = hpF.run(x);
+            if (lp > 0) x = lpF.run(x);
+            if (peakHz > 0) x += pkF.run(x) * peakGain;
+            // 5) หุ่นยนต์
+            if (ringHz > 0) { ringPh += ringHz / RATE; ringPh -= Math.floor(ringPh); x = x * (1 - ringMix) + x * Math.sin(TAU * ringPh) * ringMix * 1.4; }
+            // 6) เสียงแตก + ลดคุณภาพ
+            if (drive > 0) x = Math.tanh(x * drive) / dTanh;
+            if (q > 0) x = Math.round(x * q) / q;
+            if (dn > 1) { if (hold <= 0) { held = x; hold = dn; } hold--; x = held; }
+            // 7) เสียงขาดๆ หายๆ
+            if (tremRate > 0) { tremPh += tremRate / RATE; tremPh -= Math.floor(tremPh); x *= 1 - tremDepth * 0.5 * (1 - Math.sin(TAU * tremPh)); }
+            // 8) เสียงลม/กระซิบ ตามความดังของเสียงพูด
+            if (noise > 0) {
+                double a = Math.abs(dry); env += (a > env ? 0.05 : 0.002) * (a - env);
+                rnd = (rnd * 1103515245L + 12345L) & 0x7fffffffL;
+                x += noise * env * 3 * (rnd / (double) 0x3fffffff - 1);
             }
-            t = (t + 1) % RATE;
-            int v = Math.round(x * 32767);
-            pcm[i] = (short) (v > 32767 ? 32767 : Math.max(v, -32768));
+            // 9) เสียงก้อง
+            if (echoMs > 0) {
+                int rp = ew - ed; if (rp < 0) rp += EL;
+                double d = eb[rp];
+                eb[ew] = (float) (x + echoFb * d);
+                ew = (ew + 1) % EL;
+                x = x + echoMix * d;
+            }
+            x *= gain;
+            long v = Math.round(x * 32767);
+            pcm[i] = (short) (v > 32767 ? 32767 : v < -32768 ? -32768 : v);
         }
     }
 }

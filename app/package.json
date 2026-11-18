@@ -60,5 +60,6 @@
       "artifactName": "AstraNovaVoice-Setup-${version}.exe"
     },
     "compression": "maximum"
-  }
+  },
+  "license": "SEE LICENSE IN LICENSE"
 }

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0418">
+<title>Astra-Nova Voice — ไมค์ตามระยะสำหรับ Minecraft Bedrock</title>
+<meta name="description" content="ดาวน์โหลดแอปไมค์ Astra-Nova Voice สำหรับ Android, iPhone และ Windows หรือใช้ผ่านเว็บได้ทันที">
+<meta property="og:title" content="Astra-Nova Voice">
+<meta property="og:description" content="ไมค์ตามระยะสำหรับ Minecraft Bedrock — Android · iPhone · Windows · เว็บ">
+<meta property="og:image" content="/logo.jpg">
+<link rel="icon" href="/logo.jpg">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg0: #05020d; --bg1: #12062b; --violet: #8b5cf6; --violet2: #c084fc; --pink: #f0abfc;
+    --cyan: #7dd3fc; --text: #f4efff; --muted: #b7a9d9; --card: rgba(30, 14, 64, .55); --line: rgba(192, 132, 252, .28);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { scroll-behavior: smooth; background: var(--bg0); }
+  body {
+    min-height: 100vh; color: var(--text); overflow-x: hidden;
+    font-family: "Kanit", system-ui, -apple-system, "Segoe UI", sans-serif; font-weight: 300;
+    background:
+      radial-gradient(900px 600px at 15% 10%, rgba(124, 58, 237, .35), transparent 60%),
+      radial-gradient(800px 700px at 90% 30%, rgba(192, 38, 211, .25), transparent 60%),
+      radial-gradient(1000px 700px at 50% 110%, rgba(67, 56, 202, .35), transparent 60%),
+      linear-gradient(180deg, var(--bg1), var(--bg0) 70%);
+  }
+  #sky { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+  .nebula { position: fixed; border-radius: 50%; filter: blur(80px); opacity: .45; z-index: 0; pointer-events: none; animation: drift 26s ease-in-out infinite alternate; }
+  .n1 { width: 520px; height: 520px; background: #6d28d9; top: -140px; left: -160px; }
+  .n2 { width: 460px; height: 460px; background: #a21caf; bottom: -160px; right: -120px; animation-duration: 32s; }
+  .n3 { width: 300px; height: 300px; background: #4338ca; top: 45%; left: 55%; animation-duration: 40s; opacity: .3; }
+  @keyframes drift { to { transform: translate(60px, 40px) scale(1.15); } }
+
+  main { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: max(28px, env(safe-area-inset-top)) 20px 40px; }
+
+  /* ---------- hero ---------- */
+  .hero { text-align: center; padding: 40px 0 26px; }
+  .orbit { position: relative; width: min(260px, 62vw); aspect-ratio: 1; margin: 0 auto 30px; }
+  .orbit img { position: absolute; inset: 12%; width: 76%; height: 76%; border-radius: 50%; object-fit: cover;
+    box-shadow: 0 0 40px rgba(167, 139, 250, .7), 0 0 120px rgba(139, 92, 246, .45), inset 0 0 20px #000; animation: pulse 5s ease-in-out infinite; }
+  .ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid rgba(216, 180, 254, .45); animation: spin 18s linear infinite; }
+  .ring::before { content: ""; position: absolute; top: -5px; left: 50%; width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 0 12px #fff, 0 0 24px var(--violet2); }
+  .ring.r2 { inset: -9%; border-style: dashed; border-color: rgba(125, 211, 252, .25); animation-duration: 34s; animation-direction: reverse; }
+  .ring.r2::before { background: var(--cyan); box-shadow: 0 0 12px var(--cyan); top: auto; bottom: -5px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 50% { box-shadow: 0 0 55px rgba(196, 181, 253, .9), 0 0 160px rgba(139, 92, 246, .6), inset 0 0 20px #000; } }
+
+  .neon {
+    font-family: "Audiowide", "Kanit", sans-serif; font-weight: 400; letter-spacing: .08em;
+    font-size: clamp(30px, 10.5vw, 96px); line-height: 1; color: #fff; white-space: nowrap;
+    text-shadow: 0 0 4px #fff, 0 0 10px #fff, 0 0 22px #fff, 0 0 42px var(--violet2), 0 0 80px var(--violet), 0 0 120px var(--violet);
+    animation: flicker 7s infinite;
+  }
+  .neon .dash { color: var(--pink); text-shadow: 0 0 6px #fff, 0 0 18px var(--pink), 0 0 50px #d946ef; }
+  @keyframes flicker {
+    0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; }
+    20%, 24%, 55% { opacity: .55; text-shadow: none; }
+  }
+  .sub { font-family: "Audiowide", sans-serif; letter-spacing: .55em; font-size: clamp(13px, 2.4vw, 18px); color: #e9d5ff; margin: 14px 0 0 .55em;
+    text-shadow: 0 0 10px rgba(216, 180, 254, .8); }
+  .tagline { color: var(--muted); font-size: clamp(15px, 2.6vw, 19px); margin: 18px auto 0; max-width: 560px; line-height: 1.6; }
+
+  .cta { display: inline-flex; align-items: center; gap: 12px; margin-top: 30px; padding: 18px 34px; border-radius: 999px;
+    font: 500 19px "Kanit", sans-serif; color: #fff; text-decoration: none; position: relative; isolation: isolate;
+    background: linear-gradient(100deg, #7c3aed, #c026d3 55%, #6366f1); box-shadow: 0 10px 40px rgba(168, 85, 247, .55), inset 0 1px 0 rgba(255,255,255,.35);
+    transition: transform .2s, box-shadow .2s; }
+  .cta::after { content: ""; position: absolute; inset: -3px; border-radius: inherit; z-index: -1; background: linear-gradient(100deg, #a78bfa, #f0abfc, #7dd3fc, #a78bfa);
+    background-size: 300% 100%; animation: sheen 4s linear infinite; filter: blur(10px); opacity: .7; }
+  @keyframes sheen { to { background-position: 300% 0; } }
+  .cta:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 16px 60px rgba(192, 132, 252, .75); }
+  .cta svg { width: 26px; height: 26px; }
+  .cta-note { display: block; color: var(--muted); font-size: 13px; margin-top: 12px; }
+
+  /* ---------- downloads ---------- */
+  h2 { font-family: "Audiowide", "Kanit", sans-serif; font-weight: 400; text-align: center; font-size: clamp(22px, 4vw, 30px); margin: 64px 0 8px;
+    color: #fff; text-shadow: 0 0 14px rgba(192, 132, 252, .8); letter-spacing: .04em; }
+  h2 + p { text-align: center; color: var(--muted); margin-bottom: 26px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
+  .dl { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 10px; padding: 26px 22px 22px; border-radius: 22px;
+    background: var(--card); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    text-decoration: none; color: var(--text); transition: transform .25s, border-color .25s, box-shadow .25s; }
+  .dl::before { content: ""; position: absolute; inset: 0; background: radial-gradient(400px 160px at var(--mx, 50%) -20%, rgba(192, 132, 252, .28), transparent 70%); opacity: 0; transition: opacity .3s; }
+  .dl:hover { transform: translateY(-6px); border-color: rgba(233, 213, 255, .7); box-shadow: 0 18px 50px rgba(124, 58, 237, .45), 0 0 0 1px rgba(233, 213, 255, .2); }
+  .dl:hover::before { opacity: 1; }
+  .ico { width: 58px; height: 58px; border-radius: 16px; display: grid; place-items: center;
+    background: linear-gradient(140deg, rgba(167, 139, 250, .3), rgba(217, 70, 239, .18)); border: 1px solid var(--line); box-shadow: 0 0 22px rgba(167, 139, 250, .35); }
+  .ico svg { width: 32px; height: 32px; fill: #fff; filter: drop-shadow(0 0 6px rgba(255,255,255,.7)); }
+  .dl b { font-size: 21px; font-weight: 500; }
+  .dl small { color: var(--muted); font-size: 14px; line-height: 1.55; min-height: 44px; }
+  .btn { margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px; border-radius: 14px; font-weight: 500;
+    background: rgba(255, 255, 255, .08); border: 1px solid rgba(233, 213, 255, .35); transition: background .2s; }
+  .dl:hover .btn { background: linear-gradient(100deg, #7c3aed, #c026d3); border-color: transparent; }
+  .btn svg { width: 18px; height: 18px; fill: currentColor; }
+  .tag { position: absolute; top: 16px; right: 16px; font-size: 11px; padding: 4px 10px; border-radius: 99px; background: rgba(125, 211, 252, .15); color: var(--cyan); border: 1px solid rgba(125, 211, 252, .35); }
+
+  /* ---------- features ---------- */
+  .feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 14px; }
+  .feat { padding: 20px; border-radius: 18px; background: rgba(20, 10, 44, .5); border: 1px solid rgba(139, 92, 246, .22); }
+  .feat i { font-style: normal; font-size: 26px; display: block; margin-bottom: 8px; filter: drop-shadow(0 0 8px rgba(216, 180, 254, .6)); }
+  .feat b { font-weight: 500; display: block; margin-bottom: 4px; }
+  .feat span { color: var(--muted); font-size: 14px; line-height: 1.55; }
+
+  /* ---------- steps ---------- */
+  .steps { counter-reset: s; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+  .step { position: relative; padding: 22px 20px 20px 66px; border-radius: 18px; background: rgba(20, 10, 44, .5); border: 1px solid rgba(139, 92, 246, .22); line-height: 1.6; color: var(--muted); font-size: 15px; }
+  .step b { color: var(--text); font-weight: 500; }
+  .step::before { counter-increment: s; content: counter(s); position: absolute; left: 18px; top: 20px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    font-family: "Audiowide"; color: #fff; background: linear-gradient(140deg, #7c3aed, #c026d3); box-shadow: 0 0 18px rgba(192, 38, 211, .6); }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: rgba(0,0,0,.35); border: 1px solid var(--line); padding: 2px 7px; border-radius: 6px; color: #e9d5ff; word-break: break-all; }
+
+  footer { position: relative; z-index: 1; text-align: center; color: #8d7fb3; font-size: 13px; padding: 50px 20px calc(30px + env(safe-area-inset-bottom)); }
+  footer .fn { font-family: "Audiowide"; color: #fff; letter-spacing: .15em; text-shadow: 0 0 10px var(--violet2); }
+
+  .reveal { opacity: 0; transform: translateY(24px); transition: opacity .8s ease, transform .8s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .reveal { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<div class="nebula n1"></div><div class="nebula n2"></div><div class="nebula n3"></div>
+
+<main>
+  <section class="hero">
+    <div class="orbit"><div class="ring"></div><div class="ring r2"></div><img src="/logo.jpg" alt="Astra-Nova logo"></div>
+    <h1 class="neon">ASTRA<span class="dash">-</span>NOVA</h1>
+    <div class="sub">VOICE</div>
+    <p class="tagline">ไมค์ตามระยะสำหรับ Minecraft Bedrock — ยิ่งใกล้ยิ่งได้ยินชัด มีผนังกั้นเสียง ใช้ได้ทั้งมือถือ คอม และเว็บ</p>
+    <a class="cta" href="/" id="goWeb">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>
+      เข้าเว็บไมค์เลย
+    </a>
+    <span class="cta-note">ไม่ต้องติดตั้งอะไร — เปิดในเบราว์เซอร์ได้ทันที (iPhone แนะนำทางนี้)</span>
+  </section>
+
+  <section class="reveal">
+    <h2>ดาวน์โหลดแอปไมค์</h2>
+    <p>เลือกตามเครื่องที่ใช้ — แอปทำงานเบื้องหลังได้ เล่นเกมไปคุยไปเหมือน Discord</p>
+    <div class="grid">
+      <a class="dl" data-file="AstraNovaVoice-Android.apk">
+        <span class="tag">แนะนำ</span>
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22A11.4 11.4 0 0 0 12 8.13c-1.77 0-3.43.38-4.92 1.01L5.22 5.92a.38.38 0 1 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/></svg></div>
+        <b>Android</b>
+        <small>ไฟล์ .apk — เปิดไฟล์แล้วกดติดตั้ง (อนุญาต "ติดตั้งจากแหล่งที่ไม่รู้จัก" ครั้งแรก)</small>
+        <span class="btn"><svg viewBox="0 0 24 24"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5z"/></svg>ดาวน์โหลด APK</span>
+      </a>
+      <a class="dl" data-file="AstraNovaVoice-iOS.ipa">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.47.83-.72 0-1.82-.81-2.99-.79a4.42 4.42 0 0 0-3.74 2.27c-1.6 2.77-.41 6.86 1.14 9.1.76 1.1 1.66 2.33 2.84 2.29 1.14-.05 1.57-.74 2.95-.74 1.37 0 1.76.74 2.97.71 1.23-.02 2-1.11 2.75-2.22.87-1.27 1.22-2.51 1.24-2.57-.03-.01-2.37-.91-2.4-3.6zM14.1 5.86c.63-.77 1.06-1.83.94-2.89-.91.04-2.01.61-2.66 1.37-.58.67-1.09 1.75-.96 2.79 1.02.08 2.05-.52 2.68-1.27z"/></svg></div>
+        <b>iPhone / iPad</b>
+        <small>ไฟล์ .ipa — ติดตั้งผ่าน AltStore / Sideloadly / eSign หรือใช้ "เว็บไมค์" แทนได้เลย</small>
+        <span class="btn"><svg viewBox="0 0 24 24"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5z"/></svg>ดาวน์โหลด IPA</span>
+      </a>
+      <a class="dl" data-file="AstraNovaVoice-Windows.exe">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 5.5l7.5-1v7H3zm8.5-1.15L21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zm8.5 0H21V21l-9.5-1.35z"/></svg></div>
+        <b>Windows</b>
+        <small>ไฟล์ .exe — เปิดใช้ได้เลยไม่ต้องติดตั้ง ปุ่มลัด F8 ปิด/เปิดไมค์ · F9 ปิด/เปิดหู</small>
+        <span class="btn"><svg viewBox="0 0 24 24"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5z"/></svg>ดาวน์โหลด EXE</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <h2>เริ่มใช้งานใน 3 ขั้น</h2>
+    <p>ไม่ต้องตั้งเซิร์ฟเวอร์เอง ไม่ต้องใส่รหัสลับ</p>
+    <div class="steps">
+      <div class="step"><b>เปิดแอปหรือเว็บไมค์</b><br>เข้าหน้าไมค์ได้ทันที ลองพูดดูว่าแถบเสียงขยับ</div>
+      <div class="step"><b>ใส่ชื่อ Xbox</b><br>กดเข้าสู่ระบบครั้งเดียว ครั้งต่อไปเข้าเองอัตโนมัติ</div>
+      <div class="step"><b>เข้าเกมแล้วพูดได้เลย</b><br>โลกธรรมดา: เจ้าของโลกพิมพ์ <code>/wsserver wss://astranova-voice.onrender.com/mc</code></div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <h2>ฟีเจอร์</h2>
+    <p>ทุกอย่างที่ต้องใช้คุยในเกม</p>
+    <div class="feats">
+      <div class="feat"><i>📡</i><b>เสียงตามระยะ</b><span>ใกล้ดัง ไกลเบา ตั้งระยะได้ 0–100 บล็อค และปรับระยะพูดของตัวเองได้</span></div>
+      <div class="feat"><i>🧱</i><b>ผนังกั้นเสียง</b><span>มีบล็อคขวาง เสียงจะอู้ ทึบ หรือเงียบ ตามที่แอดมินตั้ง</span></div>
+      <div class="feat"><i>🌊</i><b>ใต้น้ำเสียงอู้</b><span>ดำน้ำแล้วเสียงเปลี่ยนเหมือนอยู่ใต้น้ำจริง</span></div>
+      <div class="feat"><i>🎧</i><b>สเตอริโอ ซ้าย/ขวา</b><span>รู้ทิศว่าเพื่อนพูดมาจากทางไหน</span></div>
+      <div class="feat"><i>🎭</i><b>เปลี่ยนเสียง</b><span>ยักษ์ ชิปมังก์ หุ่นยนต์ ปีศาจ ฯลฯ (เฉพาะแอดมิน)</span></div>
+      <div class="feat"><i>🛡️</i><b>แผงควบคุมแอดมิน</b><span>ปิดไมค์/หูทั้งเซิฟ ปิดรายคน โทรโข่ง ประกาศ</span></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="fn">ASTRA-NOVA VOICE</div>
+  <div style="margin-top:6px">ไมค์ตามระยะสำหรับ Minecraft Bedrock · ใช้ได้ทั้งโลกธรรมดาและเซิร์ฟเวอร์</div>
+</footer>
+
+<script>
+  // ปุ่มดาวน์โหลด: ไฟล์ล่าสุดจาก GitHub Releases
+  const REL = "https://github.com/ZAYA-ZEN/astranova-voice/releases/latest/download/";
+  document.querySelectorAll(".dl[data-file]").forEach((a) => {
+    a.href = REL + a.dataset.file;
+    a.setAttribute("download", "");
+    a.addEventListener("pointermove", (e) => { const r = a.getBoundingClientRect(); a.style.setProperty("--mx", ((e.clientX - r.left) / r.width) * 100 + "%"); });
+  });
+  // เว็บไมค์: ถ้าเปิดหน้านี้จากที่อื่น ให้ไปเว็บของระบบเสียง
+  if (!/onrender\.com$|^localhost$/.test(location.hostname) && location.protocol !== "file:") document.getElementById("goWeb").href = "https://astranova-voice.onrender.com/";
+  if (location.protocol === "file:") document.getElementById("goWeb").href = "https://astranova-voice.onrender.com/";
+
+  // เลื่อนแล้วค่อยๆ โผล่
+  const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+
+  // ท้องฟ้าดาว + ดาวตก
+  const cv = document.getElementById("sky"), cx = cv.getContext("2d");
+  let W, H, stars = [], shoot = null;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function size() {
+    const d = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight; cv.width = W * d; cv.height = H * d; cv.style.width = W + "px"; cv.style.height = H + "px"; cx.setTransform(d, 0, 0, d, 0, 0);
+    stars = Array.from({ length: Math.round((W * H) / 2600) }, () => ({
+      x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.3 + 0.2, z: Math.random() * 0.6 + 0.2,
+      t: Math.random() * 6.28, s: Math.random() * 0.02 + 0.005, c: Math.random() < 0.18 ? "216,180,254" : Math.random() < 0.1 ? "125,211,252" : "255,255,255",
+    }));
+  }
+  let scrollY0 = 0; addEventListener("scroll", () => (scrollY0 = scrollY), { passive: true });
+  function frame() {
+    cx.clearRect(0, 0, W, H);
+    for (const s of stars) {
+      s.t += s.s;
+      const a = 0.35 + Math.sin(s.t) * 0.35 + 0.3;
+      const y = (s.y - scrollY0 * s.z * 0.3 + H * 10) % H;
+      cx.beginPath(); cx.arc(s.x, y, s.r, 0, 6.283);
+      cx.fillStyle = `rgba(${s.c},${a})`; cx.shadowBlur = s.r > 1 ? 8 : 0; cx.shadowColor = `rgba(${s.c},1)`; cx.fill();
+    }
+    cx.shadowBlur = 0;
+    if (!shoot && Math.random() < 0.006) shoot = { x: Math.random() * W * 0.7 + W * 0.3, y: Math.random() * H * 0.4, l: 0 };
+    if (shoot) {
+      shoot.l += 14;
+      const x = shoot.x - shoot.l, y = shoot.y + shoot.l * 0.45;
+      const g = cx.createLinearGradient(x, y, x + 120, y - 54);
+      g.addColorStop(0, "rgba(255,255,255,.95)"); g.addColorStop(1, "rgba(192,132,252,0)");
+      cx.strokeStyle = g; cx.lineWidth = 2; cx.beginPath(); cx.moveTo(x, y); cx.lineTo(x + 120, y - 54); cx.stroke();
+      if (shoot.l > W) shoot = null;
+    }
+    if (!reduce) requestAnimationFrame(frame);
+  }
+  addEventListener("resize", size); size(); frame();
+</script>
+</body>
+</html>

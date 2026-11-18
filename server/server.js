@@ -212,7 +212,8 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ gameOnline: gameOnline(), players: [...game.players.values()].map((p) => p.n), apps: [...clients].filter((c) => c.linked).map((c) => c.name), settings: game.settings }));
     }
     // เสิร์ฟหน้าเว็บแอป (ใช้บน PC ผ่าน http://localhost:พอร์ต ได้)
-    let file = path.normalize(path.join(WWW, url.pathname === "/" ? "index.html" : url.pathname));
+    const ALIAS = { "/": "index.html", "/download": "download.html", "/get": "download.html", "/home": "download.html" };
+    let file = path.normalize(path.join(WWW, ALIAS[url.pathname.replace(/\/+$/, "") || "/"] || url.pathname));
     if (!file.startsWith(WWW) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end("not found"); }
     res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream" });
     fs.createReadStream(file).pipe(res);

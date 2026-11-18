@@ -201,7 +201,8 @@ registerProcessor("mcv-cap", Cap);`;
       if (!ctx) {
         ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
         master = ctx.createGain(); master.gain.value = opts.deaf ? 0 : (opts.vol ?? 1);
-        if (!IS_SAFARI && window.RTCPeerConnection && ctx.createMediaStreamDestination) {
+        // แอป Windows: ไม่ใช้ loopback (เพิ่มดีเลย์+กิน CPU) — ใช้ตัวกันเสียงสะท้อนแบบเบาแทน
+        if (!window.mcvoiceNative && !IS_SAFARI && window.RTCPeerConnection && ctx.createMediaStreamDestination) {
           try { const dest = ctx.createMediaStreamDestination(); master.connect(dest); outEl = await loopbackOut(dest.stream); aecRouted = true; }
           catch (e) { console.warn("AEC loopback ไม่ได้", e); }
         }
@@ -301,7 +302,11 @@ registerProcessor("mcv-cap", Cap);`;
     const ab = ctx.createBuffer(1, f32.length, rate);
     ab.copyToChannel ? ab.copyToChannel(f32, 0) : ab.getChannelData(0).set(f32);
     const src = ctx.createBufferSource(); src.buffer = ab; src.connect(sp.gain);
-    if (sp.next < t + 0.015 || sp.next > t + 0.45) sp.next = t + 0.09; // jitter buffer ~90ms
+    // บัฟเฟอร์ปรับตัวเอง: เริ่ม 45ms, ถ้าเสียงขาดค่อยเพิ่ม (สูงสุด 160ms) แล้วค่อยๆ ลดกลับ
+    if (!sp.target) sp.target = 0.045;
+    if (sp.next < t + 0.004) { if (sp.next) sp.target = Math.min(0.16, sp.target + 0.02); sp.next = t + sp.target; sp.calm = t; }
+    else if (sp.next > t + sp.target + 0.12) sp.next = t + sp.target; // ดีเลย์สะสม → ตัดทิ้ง
+    else if (t - (sp.calm || 0) > 3 && sp.target > 0.045) { sp.target = Math.max(0.045, sp.target - 0.01); sp.calm = t; }
     src.start(sp.next); sp.next += ab.duration;
   }
 

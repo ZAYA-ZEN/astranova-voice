@@ -7,13 +7,17 @@ app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
+// เปิดได้ทีละหน้าต่าง (เปิดซ้ำ = เด้งหน้าต่างเดิมขึ้นมา)
+if (!app.requestSingleInstanceLock()) { app.exit(0); }
+app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
+
 let win;
 function create() {
   Menu.setApplicationMenu(null);
   win = new BrowserWindow({
     width: 440, height: 820, minWidth: 360, title: "Astra Nova Voice", backgroundColor: "#05060f",
     icon: path.join(__dirname, "icon.ico"),
-    webPreferences: { preload: path.join(__dirname, "preload.js"), backgroundThrottling: false, contextIsolation: true },
+    webPreferences: { preload: path.join(__dirname, "preload.js"), backgroundThrottling: false, contextIsolation: true, spellcheck: false },
   });
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === "media" || perm === "audioCapture"));
   session.defaultSession.setPermissionCheckHandler((_wc, perm) => perm === "media" || perm === "audioCapture");
@@ -21,7 +25,17 @@ function create() {
   startHotkeys();
 }
 app.whenReady().then(create);
-app.on("will-quit", () => { globalShortcut.unregisterAll(); try { hook && hook.stop(); } catch {} });
+// ปิดแอปให้ออกจริงเสมอ: ถ้ามีอะไรค้าง (ตัวจับปุ่ม/ตัวเชื่อม) บังคับออกภายใน 1.5 วินาที
+let quitting = false;
+function hardQuit() {
+  if (quitting) return; quitting = true;
+  setTimeout(() => app.exit(0), 1500).unref();
+  try { globalShortcut.unregisterAll(); } catch {}
+  try { hook && hook.removeAllListeners && hook.removeAllListeners(); hook && hook.stop(); } catch {}
+  try { bridge && bridge.close(); } catch {}
+  app.exit(0);
+}
+app.on("before-quit", hardQuit);
 
 // ---------- ปุ่มลัดทั่วระบบ (ใช้ได้ขณะเล่นเกม) — ตั้งเองได้ + กดค้างเพื่อพูด ----------
 // ใช้ uiohook จับทั้งกดและปล่อยปุ่ม (globalShortcut ของ Electron รู้แค่ตอนกด) ถ้าโหลดไม่ได้จะใช้ F8/F9 แบบเดิม
@@ -86,7 +100,7 @@ ipcMain.handle("hk:record", (_e, action) => {
   return true;
 });
 ipcMain.handle("hk:clear", (_e, action) => { if (hook && action in keys) { keys[action] = null; saveKeys(); } return hkState(); });
-app.on("window-all-closed", () => app.quit());
+app.on("window-all-closed", hardQuit);
 
 // ---------- ตัวเชื่อมโลกธรรมดา: Minecraft (/wsserver localhost:19140) <-> ระบบเสียง (wss://…/mc) ----------
 let bridge = null, bridgeTarget = "";

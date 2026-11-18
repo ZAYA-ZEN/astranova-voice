@@ -73,13 +73,13 @@
   /* ---- v1.5 look ---- */
   body::before { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
     background-image: radial-gradient(1px 1px at 20% 30%, #fff8, transparent), radial-gradient(1px 1px at 70% 20%, #fff6, transparent), radial-gradient(1.5px 1.5px at 40% 70%, #c9b8ff99, transparent), radial-gradient(1px 1px at 85% 60%, #fff5, transparent), radial-gradient(1px 1px at 10% 85%, #9fd0ff88, transparent), radial-gradient(1.5px 1.5px at 60% 45%, #fff6, transparent);
-    animation: twinkle 6s ease-in-out infinite alternate; }
+    opacity: .8; }
   @keyframes twinkle { from { opacity:.5 } to { opacity:1 } }
   .hero { text-align:center; padding-top:18px; }
   .brand { font-size:26px; font-weight:800; letter-spacing:4px; background:linear-gradient(90deg,#c7b5ff,#7fb2ff,#f3c9ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
   .brand span { font-weight:300; }
   .tag { color:var(--mut); font-size:13px; margin:4px 0 18px; }
-  .logo { animation: glow 4s ease-in-out infinite alternate; }
+  .logo { box-shadow: 0 0 60px #6d4dff77; }
   .logo.mid { width:110px; }
   @keyframes glow { from { box-shadow:0 0 40px #6d4dff44 } to { box-shadow:0 0 80px #6d4dff99 } }
   .glass { background:linear-gradient(160deg,#171a3acc,#0c0e20cc); border:1px solid #3a3577; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); box-shadow:0 10px 40px #0006, inset 0 1px 0 #ffffff12; }

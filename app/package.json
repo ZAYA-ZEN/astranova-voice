@@ -1,13 +1,13 @@
 {
   "name": "astranova-voice",
   "productName": "Astra Nova Voice",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Astra Nova Voice - proximity voice chat for Minecraft Bedrock",
   "author": "Astra Nova",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "build:exe": "electron-builder --win portable --x64",
+    "build:exe": "electron-builder --win nsis --x64",
     "android:add": "cap add android && node scripts/patch-native.js android",
     "ios:add": "cap add ios && node scripts/patch-native.js ios",
     "sync": "cap sync"
@@ -34,17 +34,31 @@
       "package.json"
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "electron/icon.ico",
       "signAndEditExecutable": false
-    },
-    "portable": {
-      "artifactName": "AstraNovaVoice-${version}.exe"
     },
     "directories": {
       "output": "dist"
     },
     "afterPack": "scripts/after-pack.js",
-    "npmRebuild": false
+    "npmRebuild": false,
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "shortcutName": "Astra Nova Voice",
+      "artifactName": "AstraNovaVoice-Setup-${version}.exe"
+    },
+    "compression": "maximum"
   }
 }

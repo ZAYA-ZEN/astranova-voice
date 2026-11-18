@@ -120,7 +120,7 @@ function mix(speakerKey, listenerKey) {
   const occ = game.occ.get(speakerKey < listenerKey ? speakerKey + "|" + listenerKey : listenerKey + "|" + speakerKey) || 0;
   if (occ >= 3) return null; // ผนังหนาจนเสียงไม่ผ่าน
   if (occ >= 2) { g *= 0.45; lp = 800; } else if (occ === 1) { g *= 0.7; lp = 1600; }
-  if (game.water.has(speakerKey) || game.water.has(listenerKey)) { g *= 0.75; lp = lp ? Math.min(lp, 500) : 500; }
+  if (game.water.has(speakerKey) || game.water.has(listenerKey)) { g *= 0.6; lp = lp ? Math.min(lp, 320) : 320; }
   return { gain: g, pan, dist, lp };
 }
 
@@ -164,7 +164,7 @@ function applyGame(body) {
   game.players = new Map((body.players || []).map((p) => [key(p.n), p]));
   game.water = new Set((body.players || []).filter((p) => p.w).map((p) => key(p.n)).concat((body.water || []).map(key)));
   game.prange = new Map(Object.entries(body.prange || {}).map(([n, v]) => [key(n), Math.max(1, Math.min(100, Number(v) || 100))]));
-  game.vfx = new Map(Object.entries(body.vfx || {}).map(([n, v]) => [key(n), Math.max(0, Math.min(7, Number(v) || 0))]));
+  game.vfx = new Map(Object.entries(body.vfx || {}).map(([n, v]) => [key(n), Math.max(0, Math.min(12, Number(v) || 0))]));
   game.occ = new Map(Object.entries(body.occ || {}).map(([k, v]) => [k.split("|").map(key).sort().join("|"), Number(v) || 0]));
   for (const a of body.announce || []) broadcastJSON({ t: "announce", text: String(a.text).slice(0, 300), by: a.by });
 
@@ -248,12 +248,15 @@ mcWss.on("connection", (ws, req) => {
   console.log("โลกเชื่อมต่อผ่าน /wsserver จาก", req.headers["x-forwarded-for"] || req.socket.remoteAddress);
   const pending = new Map();
   let inflight = 0;
-  const cmd = (line) => new Promise((resolve) => {
-    if (ws.readyState !== 1 || inflight > 60) return resolve(null);
+  // ส่งคำสั่งได้ค้างพร้อมกันไม่เกิน 60 (มายคราฟจำกัดไว้) ที่เกินให้ต่อคิว ไม่ทิ้ง
+  const waitq = [];
+  const cmd = (line) => (inflight >= 60 ? new Promise((r) => waitq.push(r)).then(() => cmd(line)) : rawCmd(line));
+  const rawCmd = (line) => new Promise((resolve) => {
+    if (ws.readyState !== 1) return resolve(null);
     const id = crypto.randomUUID();
     inflight++;
-    const t = setTimeout(() => { if (pending.delete(id)) { inflight--; resolve(null); } }, 4000);
-    pending.set(id, (body) => { clearTimeout(t); inflight--; resolve(body); });
+    const t = setTimeout(() => { if (pending.delete(id)) { inflight--; resolve(null); const n = waitq.shift(); if (n) n(); } }, 4000);
+    pending.set(id, (body) => { clearTimeout(t); inflight--; resolve(body); const n = waitq.shift(); if (n) n(); });
     ws.send(JSON.stringify({
       header: { version: 1, requestId: id, messagePurpose: "commandRequest", messageType: "commandRequest" },
       body: { version: 1, commandLine: line, origin: { type: "player" } },
@@ -278,20 +281,9 @@ mcWss.on("connection", (ws, req) => {
   const slow = async () => {
     const l = await cmd("list");
     if (l && typeof l.players === "string") mcWorld.names = l.players.split(",").map((x) => x.trim()).filter(Boolean);
-    for (const [k, tag] of [["muted", "astra_muted"], ["deaf", "astra_deaf"], ["mega", "astra_mega"], ["self", "astra_self"]]) {
-      const r = await cmd(`testfor @a[tag=${tag}]`);
-      mcWorld.flags[k] = r && r.statusCode === 0 && Array.isArray(r.victim) ? r.victim : [];
-    }
-    // ใต้น้ำ (แอดออนติด tag ให้)
-    const w = await cmd("testfor @a[tag=astra_water]");
-    mcWorld.water = w && w.statusCode === 0 && Array.isArray(w.victim) ? w.victim : [];
-    // เปลี่ยนเสียง (แอดมิน): แอดออนติด tag astra_vfx + astra_vfx_N
-    const vf = {}, any = await cmd("testfor @a[tag=astra_vfx]");
-    if (any && any.statusCode === 0) for (let i = 1; i <= 7; i++) {
-      const r = await cmd(`testfor @a[tag=astra_vfx_${i}]`);
-      if (r && r.statusCode === 0 && Array.isArray(r.victim)) for (const n of r.victim) vf[n] = i;
-    }
-    mcWorld.vfx = vf;
+    const FL = [["muted", "astra_muted"], ["deaf", "astra_deaf"], ["mega", "astra_mega"], ["self", "astra_self"]];
+    const fr = await Promise.all(FL.map(([, tag]) => cmd(`testfor @a[tag=${tag}]`)));
+    FL.forEach(([k], i) => { const r = fr[i]; mcWorld.flags[k] = r && r.statusCode === 0 && Array.isArray(r.victim) ? r.victim : []; });
     // ระยะพูดที่ผู้เล่นตั้งในเกม: อ่านใหม่เฉพาะตอน astra_prv เปลี่ยน
     const prv = await cmd(`scoreboard players test astra_prv astra ${mcWorld.prv || 0} ${mcWorld.prv || 0}`);
     if (prv && prv.statusCode !== 0) {
@@ -315,20 +307,6 @@ mcWss.on("connection", (ws, req) => {
         if (claimCode(code, who)) cmd(`tag ${q(who)} remove astra_lc_${code}`);
       }
     }
-    // ผนังกั้นระหว่างคู่ผู้เล่น (แอดออนเขียนลง scoreboard astra_occ ชื่อ "a|b")
-    const ps = [...mcWorld.pos.values()], occ = {}, R = range();
-    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
-      const a = ps[i], b = ps[j];
-      if (a.d !== b.d || Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) > Math.min(R, 48)) continue;
-      const k = [key(a.n), key(b.n)].sort().join("|");
-      const r1 = await cmd(`scoreboard players test "${k}" astra_occ 1 *`);
-      if (!r1 || r1.statusCode !== 0) continue;
-      const r2 = await cmd(`scoreboard players test "${k}" astra_occ 2 *`);
-      if (!r2 || r2.statusCode !== 0) { occ[k] = 1; continue; }
-      const r3 = await cmd(`scoreboard players test "${k}" astra_occ 3 *`);
-      occ[k] = r3 && r3.statusCode === 0 ? 3 : 2;
-    }
-    mcWorld.occ = occ;
     // ค่าตั้งจากแอดออน: astra_cfg = ระยะ*4 + ไมค์*2 + หู (ค้นหาแบบแบ่งครึ่ง)
     let lo = 0, hi = 4 * 101 - 1;
     const has = await cmd(`scoreboard players test astra_cfg astra ${lo} ${hi}`);
@@ -347,6 +325,34 @@ mcWss.on("connection", (ws, req) => {
         Object.assign(mcWorld.cfg, { stereo: !!(a & 1), personal: !!(a & 2), falloff: a >> 2 });
       }
     } else mcWorld.cfg = null; // ไม่มีแอดออน → ใช้ค่าเริ่มต้น
+  };
+  // ใต้น้ำ + ผนังกั้น + เปลี่ยนเสียง: วนเร็ว (0.3 วิ) และส่งคำสั่งพร้อมกันทั้งหมด ไม่รอทีละคำสั่ง
+  const env = async () => {
+    const R = Math.min(range(), 48), ps = [...mcWorld.pos.values()], pairs = [];
+    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+      const a = ps[i], b = ps[j];
+      if (a.d === b.d && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= R) pairs.push([key(a.n), key(b.n)].sort().join("|"));
+    }
+    const [w, anyV, occRes] = await Promise.all([
+      cmd("testfor @a[tag=astra_water]"),
+      cmd("testfor @a[tag=astra_vfx]"),
+      Promise.all(pairs.slice(0, 60).map(async (k) => {
+        const r1 = await cmd(`scoreboard players test "${k}" astra_occ 1 *`);
+        if (!r1 || r1.statusCode !== 0) return [k, []];
+        const [r2, r3] = await Promise.all([2, 3].map((n) => cmd(`scoreboard players test "${k}" astra_occ ${n} *`)));
+        return [k, [r1, r2, r3]];
+      })),
+    ]);
+    mcWorld.water = w && w.statusCode === 0 && Array.isArray(w.victim) ? w.victim : [];
+    const occ = {};
+    for (const [k, r] of occRes) { const lvl = r.filter((x) => x && x.statusCode === 0).length; if (lvl) occ[k] = lvl; }
+    mcWorld.occ = occ;
+    const vf = {};
+    if (anyV && anyV.statusCode === 0) {
+      const rs = await Promise.all(Array.from({ length: 12 }, (_, i) => cmd(`testfor @a[tag=astra_vfx_${i + 1}]`)));
+      rs.forEach((r, i) => { if (r && r.statusCode === 0 && Array.isArray(r.victim)) for (const n of r.victim) vf[n] = i + 1; });
+    }
+    mcWorld.vfx = vf;
   };
   // ตำแหน่งผู้เล่นทุก 0.2 วินาที
   const fast = async () => {
@@ -378,10 +384,12 @@ mcWss.on("connection", (ws, req) => {
   let busyF = false, busyS = false;
   const tf = setInterval(() => { if (busyF) return; busyF = true; fast().finally(() => { busyF = false; }); }, 200);
   const ts = setInterval(() => { if (busyS) return; busyS = true; slow().finally(() => { busyS = false; }); }, 1000);
+  let busyE = false;
+  const te = setInterval(() => { if (busyE) return; busyE = true; env().finally(() => { busyE = false; }); }, 300);
   slow();
   cmd('tellraw @s {"rawtext":[{"text":"§d[Astra Nova Voice] §aเชื่อมระบบเสียงกับโลกนี้แล้ว"}]}');
   ws.on("close", () => {
-    clearInterval(tf); clearInterval(ts);
+    clearInterval(tf); clearInterval(ts); clearInterval(te);
     if (mcSock === ws) { mcSock = null; console.log("โลกตัดการเชื่อมต่อ"); }
   });
   ws.on("error", () => {});

@@ -58,6 +58,8 @@ public class VoiceEngine {
     public volatile boolean active = false, muted = false, deaf = false, ptt = false, pttDown = false, echoGate = true;
     public volatile float threshold = 0.02f, boost = 1f, vol = 1f;
     public volatile int vfxId = 0; // ตัวเปลี่ยนเสียง (แอดมิน)
+    private boolean nsOn = true;
+    public volatile int nsLevel = 1; // ตัดเสียงรบกวน: 0 ปิด, 1 ปกติ (ระบบ), 2 แรง
     private final VoiceFx vfx = new VoiceFx();
     public volatile String inputId = "", outputId = "";
     public final Map<Integer, Float> spkVol = new ConcurrentHashMap<>();
@@ -348,6 +350,8 @@ public class VoiceEngine {
                     t = now < hang;
                 }
             }
+            if (nsLevel >= 2) vfx.denoise(buf, FRAME);
+            if (ns != null && (nsLevel >= 1) != nsOn) { nsOn = nsLevel >= 1; try { ns.setEnabled(nsOn); } catch (Exception ignored) {} }
             if (vfxId > 0) vfx.process(buf, FRAME, vfxId);
             // Opus: ป้อนทุกเฟรมต่อเนื่อง ส่งเฉพาะตอนพูด
             if (needOpus) {

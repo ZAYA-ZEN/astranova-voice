@@ -29,6 +29,8 @@ jobs:
         with: { name: AstraNovaVoice-Android-APK, path: app/AstraNovaVoice.apk }
 
   ios:
+    permissions:
+      contents: write
     runs-on: macos-latest
     defaults: { run: { working-directory: app } }
     steps:
@@ -54,6 +56,12 @@ jobs:
           zip -qr AstraNovaVoice.ipa Payload
       - uses: actions/upload-artifact@v4
         with: { name: AstraNovaVoice-iOS-IPA-unsigned, path: app/ios/App/AstraNovaVoice.ipa }
+      # อัปโหลดไฟล์ iPhone เข้า release เอง (คิวเครื่อง Mac ของ GitHub อาจช้า ไม่ให้ไปรั้งไฟล์อื่น)
+      - run: cp ios/App/AstraNovaVoice.ipa ios/App/AstraNovaVoice-iOS.ipa
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          files: app/ios/App/AstraNovaVoice-iOS.ipa
 
   windows:
     runs-on: windows-latest
@@ -69,7 +77,7 @@ jobs:
         with: { name: AstraNovaVoice-Windows-EXE, path: app/dist/*.exe }
 
   release:
-    needs: [android, ios, windows]
+    needs: [android, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -82,7 +90,6 @@ jobs:
           mkdir -p out
           sh addon/build.sh "$PWD/out"
           cp artifacts/AstraNovaVoice-Android-APK/*.apk out/AstraNovaVoice-Android.apk
-          cp artifacts/AstraNovaVoice-iOS-IPA-unsigned/*.ipa out/AstraNovaVoice-iOS.ipa
           cp artifacts/AstraNovaVoice-Windows-EXE/*.exe out/AstraNovaVoice-Windows.exe
           ls -la out
       - uses: softprops/action-gh-release@v2

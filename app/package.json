@@ -1,7 +1,7 @@
 {
   "name": "astranova-voice",
   "productName": "Astra Nova Voice",
-  "version": "1.8.1",
+  "version": "1.9.0",
   "description": "Astra Nova Voice - proximity voice chat for Minecraft Bedrock",
   "author": "Astra Nova",
   "main": "electron/main.js",

@@ -35,7 +35,7 @@ function show(scr) {
 function toast(html, ms = 6000) { const t = $("toast"); t.innerHTML = html; t.classList.remove("hidden"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.add("hidden"), ms); }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const tokenKey = () => "tok2:" + server.toLowerCase();
-let myRange = store.get("myRange", null), maxRange = 100, pendingCode = "";
+let nsLevel = store.get("ns", 1), myRange = store.get("myRange", null), maxRange = 100, pendingCode = "";
 const threshold = () => 0.002 + Math.pow((100 - sens) / 100, 2) * 0.08;
 
 function wsUrl(s) {
@@ -86,7 +86,7 @@ function nativeEngine() {
 function webEngine() {
   const C = window.AstraCodec;
   let ws = null, url = null, hello = null, reconnectTimer = null;
-  let ctx = null, micStream = null, micSrc = null, capNode = null, boostNode = null, master = null, audioBusy = null, outEl = null;
+  let micNs = true, ctx = null, micStream = null, micSrc = null, capNode = null, boostNode = null, master = null, audioBusy = null, outEl = null;
   const speakers = new Map();
   let opts = {}, hangUntil = 0, preroll = null, transmitting = false;
   let remoteLvl = 0, remoteUntil = 0, wakeLock = null, aecRouted = false;
@@ -188,7 +188,8 @@ registerProcessor("mcv-cap", Cap);`;
   async function startMic() {
     if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
     if (micSrc) { try { micSrc.disconnect(); } catch {} micSrc = null; }
-    const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+    const audio = { echoCancellation: true, noiseSuppression: (opts.ns ?? 1) >= 1, autoGainControl: true, channelCount: 1 };
+    micNs = (opts.ns ?? 1) >= 1;
     if (opts.inputId) audio.deviceId = { exact: opts.inputId };
     try { micStream = await navigator.mediaDevices.getUserMedia({ audio }); }
     catch (e) { if (opts.inputId) { delete audio.deviceId; micStream = await navigator.mediaDevices.getUserMedia({ audio }); } else throw e; }
@@ -272,6 +273,7 @@ registerProcessor("mcv-cap", Cap);`;
     if (tx && !transmitting && preroll && !opts.ptt && (encCodecs.includes("adpcm") || !opusOk) && ws) {
       const a = adpcmEnc.encode(preroll); const out = new Uint8Array(1 + a.length); out[0] = C.ADPCM; out.set(a, 1); ws.send(out);
     }
+    if ((opts.ns ?? 1) >= 2 && vfx) vfx.denoise(s16); // ตัดเสียงรบกวนแบบแรง
     if (opts.vfx && vfx) vfx.process(s16, opts.vfx); // ตัวเปลี่ยนเสียง (แอดมิน)
     sendAudio(s16, tx);
     preroll = s16; transmitting = tx;
@@ -369,7 +371,8 @@ registerProcessor("mcv-cap", Cap);`;
       Object.assign(opts, o);
       if (master) master.gain.value = opts.deaf ? 0 : (opts.vol ?? 1);
       if (boostNode) boostNode.gain.value = opts.boost ?? 1;
-      if (inChanged && ctx && micStream) startMic().catch((e) => toast("เปลี่ยนไมค์ไม่ได้: " + esc(e.message || e)));
+      const nsChanged = "ns" in o && ((o.ns ?? 1) >= 1) !== micNs;
+      if ((inChanged || nsChanged) && ctx && micStream) startMic().catch((e) => toast("เปลี่ยนไมค์ไม่ได้: " + esc(e.message || e)));
       if (outChanged) applyOutput();
     },
     async listDevices() {
@@ -399,6 +402,7 @@ function pushOpts() {
     threshold: threshold(), boost: boost / 100, vol: vol / 100, echoGate,
     inputId: store.get("inputId", ""), outputId: store.get("outputId", ""), spkVol: slotVolumes(),
     vfx: (status && status.vfx) || 0,
+    ns: nsLevel,
   });
 }
 
@@ -613,6 +617,8 @@ const syncPttBox = () => { if ($("pttOn")) $("pttOn").checked = mode === "ptt"; 
 $("mVad").addEventListener("click", syncPttBox); $("mPtt").addEventListener("click", syncPttBox);
 $("sens").oninput = (e) => { sens = +e.target.value; store.set("sens", sens); pushOpts(); renderMic(); };
 $("boost").oninput = (e) => { boost = +e.target.value; store.set("boost", boost); $("boostTxt").textContent = boost + "%"; pushOpts(); };
+$("nsSel").value = String(nsLevel);
+$("nsSel").onchange = (e) => { nsLevel = +e.target.value; store.set("ns", nsLevel); pushOpts(); };
 $("echo").checked = echoGate;
 $("echo").onchange = (e) => { echoGate = e.target.checked; store.set("echoGate", echoGate); pushOpts(); };
 $("vol").oninput = (e) => { vol = +e.target.value; store.set("vol", vol); $("volTxt").textContent = vol + "%"; pushOpts(); };

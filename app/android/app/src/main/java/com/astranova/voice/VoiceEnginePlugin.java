@@ -107,6 +107,7 @@ public class VoiceEnginePlugin extends Plugin {
         if (call.hasOption("threshold")) e.threshold = call.getFloat("threshold", 0.02f);
         if (call.hasOption("boost")) e.boost = call.getFloat("boost", 1f);
         if (call.hasOption("vfx")) e.vfxId = call.getInt("vfx", 0);
+        if (call.hasOption("ns")) e.nsLevel = call.getInt("ns", 1);
         if (call.hasOption("vol")) e.vol = call.getFloat("vol", 1f);
         if (call.hasOption("echoGate")) e.echoGate = call.getBoolean("echoGate", true);
         boolean devChanged = false;

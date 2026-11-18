@@ -208,6 +208,8 @@
       <label>ไมโครโฟน <button class="link" id="btnRefreshDev" style="padding:0;font-size:12px">รีเฟรช</button></label>
       <select id="selIn"><option value="">อัตโนมัติ</option></select>
       <div id="rowOut"><label>ลำโพง / หูฟัง</label><select id="selOut"><option value="">อัตโนมัติ</option></select></div>
+      <label style="margin-top:0">🔇 ตัดเสียงรบกวน</label>
+      <select id="nsSel"><option value="0">ปิด</option><option value="1">ปกติ</option><option value="2">แรง (ตัดเสียงพัดลม/เสียงหึ่ง/เสียงพื้นหลัง)</option></select>
       <label style="display:flex;align-items:center;gap:8px;color:var(--txt)"><input type="checkbox" id="echo" style="width:20px;height:20px"> กันเสียงสะท้อน <span class="hint">(เปิดไว้ถ้าไม่ได้ใส่หูฟัง)</span></label>
       <label>เสียงลำโพงรวม <span class="hint" id="volTxt">100%</span></label>
       <input type="range" id="vol" min="0" max="200" value="100">

@@ -68,6 +68,7 @@ public class VoiceEnginePlugin: CAPPlugin, CAPBridgedPlugin {
         if let v = call.getDouble("threshold") { eng.threshold = Float(v) }
         if let v = call.getDouble("boost") { eng.boost = Float(v) }
         if let v = call.getInt("vfx") { eng.vfxId = v }
+        if let v = call.getInt("ns") { eng.nsLevel = v }
         if let v = call.getDouble("vol") { eng.vol = Float(v) }
         if let v = call.getBool("echoGate") { eng.echoGate = v }
         if let v = call.getString("inputId"), v != eng.inputId { eng.inputId = v; DispatchQueue.main.async { self.eng.applyDevices() } }
@@ -94,6 +95,7 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
     var active = false, muted = false, deaf = false, ptt = false, pttDown = false
     var threshold: Float = 0.02, boost: Float = 1, vol: Float = 1
     var vfxId = 0 // ตัวเปลี่ยนเสียง (แอดมิน)
+    var nsLevel = 1 // ตัดเสียงรบกวน: 0 ปิด, 1 ปกติ (ระบบ), 2 แรง
     private let vfx = AstraVoiceFx()
     var echoGate = true
     var inputId = "", outputId = ""
@@ -368,6 +370,7 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
                 tx = now < hangUntil
             }
         }
+        if nsLevel >= 2 { vfx.denoise(&pcm) }
         if vfxId > 0 { vfx.process(&pcm, vfxId) }
         if tx, let t = task {
             if !transmitting, !ptt, let prev = prevFrame { t.send(.data(packAdpcm(prev))) { _ in } }
@@ -462,15 +465,16 @@ final class AstraVoiceEngine: NSObject, URLSessionWebSocketDelegate {
 }
 
 
-// MARK: - ตัวเปลี่ยนเสียง (แอดมิน) — ต้องตรงกับ www/vfx.js
+// MARK: - ตัวเปลี่ยนเสียง (แอดมิน) + ตัดเสียงรบกวนแบบแรง — ต้องตรงกับ www/vfx.js
 final class AstraVoiceFx {
     private static let RATE = 16000.0, N = 4096, W = 1200.0, EL = 3200
-    private static let PITCH: [Float] = [1, 0.7, 1.6, 1, 0.58, 1, 1, 1.3]
-    private let HP = exp(-2 * Double.pi * 400 / 16000), LP = exp(-2 * Double.pi * 2800 / 16000)
+    private static let PITCH: [Float] = [1, 0.7, 1.6, 1, 0.58, 1, 1, 1.3, 1, 1.25, 1.15, 0.75, 1]
+    private static func co(_ f: Double) -> Double { return exp(-2 * Double.pi * f / 16000) }
+    private let HP5 = co(400), LP5 = co(2800), HP8 = co(500), LP8 = co(2500), HP12 = co(600), LP12 = co(3500), DNHP = co(120)
     private var buf = [Float](repeating: 0, count: 4096)
     private var eb = [Float](repeating: 0, count: 3200)
     private var w = 0, ew = 0, t = 0
-    private var ph = 0.0, hpY = 0.0, hpX = 0.0, lp = 0.0
+    private var ph = 0.0, hpY = 0.0, hpX = 0.0, lp = 0.0, dnY = 0.0, dnX = 0.0, dnG = 1.0
 
     private func tap(_ p: Double) -> Float {
         var pos = Double(w) - (p * AstraVoiceFx.W + 1)
@@ -489,21 +493,44 @@ final class AstraVoiceFx {
         w = (w + 1) % AstraVoiceFx.N
         return y
     }
+    private func band(_ x: Float, _ ha: Double, _ la: Double) -> Float {
+        hpY = ha * (hpY + Double(x) - hpX); hpX = Double(x)
+        lp = lp + (1 - la) * (hpY - lp)
+        return Float(lp)
+    }
+    private func echo(_ x: Float, _ fb: Float) -> Float {
+        let d = eb[ew]; let y = x + 0.5 * d; eb[ew] = x + fb * d; ew = (ew + 1) % AstraVoiceFx.EL; return y
+    }
+    func denoise(_ pcm: inout [Int16]) {
+        var sq = 0.0
+        for i in 0..<pcm.count {
+            let x = Double(pcm[i]) / 32768
+            dnY = DNHP * (dnY + x - dnX); dnX = x
+            sq += dnY * dnY
+            pcm[i] = Int16(max(-32768, min(32767, (dnY * 32767).rounded())))
+        }
+        let rms = sqrt(sq / Double(max(1, pcm.count))), T = 0.02
+        let target = rms >= T ? 1 : pow(rms / T, 2)
+        let step = (target - dnG) / Double(max(1, pcm.count))
+        for i in 0..<pcm.count { dnG += step; pcm[i] = Int16(max(-32768, min(32767, (Double(pcm[i]) * dnG).rounded()))) }
+    }
     func process(_ pcm: inout [Int16], _ id: Int) {
         guard id > 0, id < AstraVoiceFx.PITCH.count else { return }
         let r = AstraVoiceFx.PITCH[id]
         for i in 0..<pcm.count {
             var x = Float(pcm[i]) / 32768
             if r != 1 { x = pitch(x, r) }
+            let tt = Double(t) / AstraVoiceFx.RATE
             switch id {
-            case 3: x = Float(Double(x) * sin(2 * Double.pi * 55 * Double(t) / AstraVoiceFx.RATE) * 1.6)
+            case 3: x = Float(Double(x) * sin(2 * Double.pi * 55 * tt) * 1.6)
             case 4: x = tanhf(x * 1.8) * 0.8
-            case 5:
-                hpY = HP * (hpY + Double(x) - hpX); hpX = Double(x)
-                lp = lp + (1 - LP) * (hpY - lp)
-                x = Float(tanh(lp * 4) * 0.6)
-            case 6:
-                let d = eb[ew]; let y = x + 0.5 * d; eb[ew] = x + 0.4 * d; ew = (ew + 1) % AstraVoiceFx.EL; x = y * 0.8
+            case 5: x = tanhf(band(x, HP5, LP5) * 4) * 0.6
+            case 6: x = echo(x, 0.4) * 0.8
+            case 8: x = band(x, HP8, LP8) * 1.4
+            case 9: x = Float(Double(x) * (0.55 + 0.45 * sin(2 * Double.pi * 30 * tt)) * 1.2)
+            case 10: x = Float(Double(echo(x, 0.55)) * 0.7 * (0.85 + 0.15 * sin(2 * Double.pi * 5 * tt)))
+            case 11: x = tanhf(x * 3) * 0.6
+            case 12: x = tanhf(band(x, HP12, LP12) * 5) * 0.5
             default: break
             }
             t = (t + 1) % Int(AstraVoiceFx.RATE)

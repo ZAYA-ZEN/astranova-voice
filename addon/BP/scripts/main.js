@@ -7,6 +7,8 @@ const ADMIN_ITEM = "voice:admin_panel";
 const DP_KEY = "mcvoice:state";
 const APP = "§dAstra Nova Voice§r";
 const TALK_SUFFIX = "\n§a((♪))";
+const MIC_GLYPH = "\uE100"; // ไอคอนไมค์ในป้ายชื่อ (RP font/glyph_E1.png)
+const STYLES = ["ไอคอนลอยเหนือหัว", "ไอคอนข้างชื่อ", "ข้อความ ((♪)) ใต้ชื่อ", "ไม่แสดง"];
 
 // ไฟล์นี้คือแกนกลาง ใช้ร่วมกันทั้ง 2 แบบ:
 //  - entry_server.js : เซิฟ BDS (เช่น mcsv) ส่งข้อมูลผ่าน @minecraft/server-net
@@ -35,6 +37,9 @@ const S = {
   self: new Set(), // ผู้เล่นปิดไมค์ตัวเองด้วยไอเท็ม
   vfx: new Map(), // เปลี่ยนเสียง (แอดมินเท่านั้น): ชื่อตัวเล็ก -> แบบเสียง
   prange: new Map(), // ระยะพูดที่ผู้เล่นตั้งเองในเกม: ชื่อตัวเล็ก -> บล็อค
+  style: new Map(), // สัญลักษณ์ตอนพูดที่ผู้เล่นเลือกเอง
+  selfDeaf: new Set(), // ปิดหูตัวเอง
+  defStyle: 0, // สัญลักษณ์เริ่มต้นของเซิฟ
 };
 let announceQueue = [];
 let busy = false;
@@ -61,6 +66,7 @@ function save() {
         muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
         vfx: Object.fromEntries(S.vfx),
         prange: Object.fromEntries(S.prange),
+        style: Object.fromEntries(S.style), selfDeaf: [...S.selfDeaf], defStyle: S.defStyle,
       })
     );
   } catch (e) { console.warn("[MCVoice] save failed " + e); }
@@ -74,6 +80,9 @@ function load() {
     for (const k of ["micEnabled", "hearEnabled", "showTalking", "showTalkTag"]) if (typeof o[k] === "boolean") S[k] = o[k];
     for (const k of ["occEnabled", "occThin", "occThick", "occBlock", "waterEnabled", "stereo", "personal", "falloff"]) if (typeof o[k] === typeof S[k]) S[k] = o[k];
     for (const k of ["muted", "deaf", "mega", "self"]) if (Array.isArray(o[k])) S[k] = new Set(o[k]);
+    if (o.style && typeof o.style === "object") S.style = new Map(Object.entries(o.style).map(([k, v]) => [k, Number(v) || 0]));
+    if (Array.isArray(o.selfDeaf)) S.selfDeaf = new Set(o.selfDeaf);
+    if (typeof o.defStyle === "number") S.defStyle = o.defStyle; else if (o.showTalkTag) S.defStyle = 2;
     if (o.prange && typeof o.prange === "object") S.prange = new Map(Object.entries(o.prange).map(([k, v]) => [k, Number(v) || 0]));
     if (o.vfx && typeof o.vfx === "object") S.vfx = new Map(Object.entries(o.vfx).map(([k, v]) => [k, Number(v) || 0]));
   } catch (e) { console.warn("[MCVoice] load failed " + e); }
@@ -103,7 +112,7 @@ function buildPayload() {
   return {
     secret: CONFIG.secret,
     settings: { range: S.range, micEnabled: S.micEnabled, hearEnabled: S.hearEnabled, stereo: S.stereo, personal: S.personal, falloff: S.falloff },
-    muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
+    muted: [...S.muted], deaf: [...new Set([...S.deaf, ...S.selfDeaf])], mega: [...S.mega], self: [...S.self],
     players,
     claims: [...claims.values()].map((c) => [c.n, c.code]),
     vfx: vfxNow(),
@@ -113,7 +122,7 @@ function buildPayload() {
   };
 }
 
-const VFX_NAMES = ["ปกติ (ไม่เปลี่ยน)", "ยักษ์ (เสียงต่ำ)", "ชิปมังก์ (เสียงสูง)", "หุ่นยนต์", "ปีศาจ", "วิทยุสื่อสาร", "ก้องในถ้ำ", "เด็ก"];
+const VFX_NAMES = ["ปกติ (ไม่เปลี่ยน)", "ยักษ์ (เสียงต่ำ)", "ชิปมังก์ (เสียงสูง)", "หุ่นยนต์", "ปีศาจ", "วิทยุสื่อสาร", "ก้องในถ้ำ", "เด็ก", "โทรศัพท์", "เอเลี่ยน", "ผี", "ซอมบี้", "โทรโข่ง"];
 // เปลี่ยนเสียงใช้ได้เฉพาะคนที่เป็นแอดมิน (OP) ตอนนี้เท่านั้น
 function vfxNow() {
   const out = {};
@@ -169,7 +178,8 @@ function updateEnv() {
     try {
       const h = p.getHeadLocation();
       const b = p.dimension.getBlock({ x: Math.floor(h.x), y: Math.floor(h.y), z: Math.floor(h.z) });
-      if (S.waterEnabled && b && b.typeId.includes("water")) water.add(key(p.name));
+      const headWet = b && (b.typeId.includes("water") || (b.isWaterlogged ?? false));
+      if (S.waterEnabled && (headWet || p.isSwimming)) water.add(key(p.name));
       heads.push({ k: key(p.name), d: p.dimension, h });
     } catch { /* ignore */ }
   }
@@ -232,7 +242,8 @@ function mirrorState() {
 function mirrorPlayer(p) {
   if (transport.mode !== "world") return;
   const k = key(p.name);
-  for (const [set, tag] of [[S.muted, "astra_muted"], [S.deaf, "astra_deaf"], [S.mega, "astra_mega"], [S.self, "astra_self"]]) {
+  const deafAll = new Set([...S.deaf, ...S.selfDeaf]);
+  for (const [set, tag] of [[S.muted, "astra_muted"], [deafAll, "astra_deaf"], [S.mega, "astra_mega"], [S.self, "astra_self"]]) {
     try { if (set.has(k)) p.addTag(tag); else p.removeTag(tag); } catch { /* ignore */ }
   }
 }
@@ -256,19 +267,26 @@ function handleResponse(r) {
   updateNameTags();
 }
 
+const decorated = new Map();
+const styleOf = (k) => (S.style.has(k) ? S.style.get(k) : S.defStyle);
 function updateNameTags() {
   for (const p of world.getAllPlayers()) {
-    const k = key(p.name);
-    const shouldShow = S.showTalkTag && talkingSet.has(k);
-    const cur = p.nameTag;
-    const hasSuffix = cur.endsWith(TALK_SUFFIX);
-    if (shouldShow && !hasSuffix) {
-      origNameTag.set(k, cur);
-      p.nameTag = cur + TALK_SUFFIX;
-    } else if (!shouldShow && hasSuffix) {
-      p.nameTag = origNameTag.get(k) ?? cur.slice(0, -TALK_SUFFIX.length);
-      origNameTag.delete(k);
-    }
+    const k = key(p.name), st = styleOf(k);
+    try {
+      const dec = decorated.get(k);
+      if (dec !== undefined && p.nameTag !== dec) { origNameTag.set(k, p.nameTag); decorated.delete(k); } // ป้ายชื่อถูกเปลี่ยนจากที่อื่น
+      const want = S.showTalking && talkingSet.has(k) && (st === 1 || st === 2);
+      if (want) {
+        if (!origNameTag.has(k)) origNameTag.set(k, p.nameTag);
+        const base = origNameTag.get(k);
+        const d = st === 1 ? MIC_GLYPH + " " + base : base + TALK_SUFFIX;
+        if (p.nameTag !== d) p.nameTag = d;
+        decorated.set(k, d);
+      } else if (decorated.has(k)) {
+        p.nameTag = origNameTag.get(k) ?? p.name;
+        decorated.delete(k); origNameTag.delete(k);
+      }
+    } catch { /* ignore */ }
   }
 }
 
@@ -280,7 +298,7 @@ function drawTalkingIcons() {
   const vars = new MolangVariableMap();
   vars.setFloat("variable.frame", talkFrame);
   for (const p of world.getAllPlayers()) {
-    if (!talkingSet.has(key(p.name))) continue;
+    if (!talkingSet.has(key(p.name)) || styleOf(key(p.name)) !== 0) continue;
     try {
       const h = p.getHeadLocation();
       const y = p.isSneaking ? 0.75 : 0.95; // อยู่เหนือป้ายชื่อ
@@ -330,15 +348,58 @@ function openPlayerMenu(p) {
       "§7วิธีใช้: เปิดแอป Astra Nova Voice > ใส่ชื่อ Xbox ของคุณ > ลิงก์อัตโนมัติ"
     )
     .button(S.self.has(k) ? "§aเปิดไมค์" : "§cปิดไมค์", "textures/items/redstone_dust")
-    .button(`ระยะเสียงของฉัน: §e${S.prange.get(k) ? Math.min(S.prange.get(k), S.range) + " บล็อค" : "เต็ม (" + S.range + ")"}`, "textures/items/spyglass");
+    .button(S.selfDeaf.has(k) ? "§aเปิดหู §8(ตอนนี้ปิดหูอยู่)" : "§cปิดหูตัวเอง", "textures/items/wool_colored_red")
+    .button(`ระยะเสียงของฉัน: §e${S.prange.get(k) ? Math.min(S.prange.get(k), S.range) + " บล็อค" : "เต็ม (" + S.range + ")"}`, "textures/items/spyglass")
+    .button(`สัญลักษณ์ตอนพูด: §e${STYLES[styleOf(k)]}`, "textures/items/sign");
   if (isAdmin(p)) f.button("§6แผงแอดมิน", "textures/items/gold_ingot");
   f.button("ปิด");
   f.show(p).then((r) => {
     if (r.canceled) return;
     if (r.selection === 0) { lastToggle.delete(k); toggleSelfMic(p); }
-    else if (r.selection === 1) myRangeForm(p);
-    else if (r.selection === 2 && isAdmin(p)) openAdmin(p);
+    else if (r.selection === 1) toggleSelfDeaf(p);
+    else if (r.selection === 2) myRangeForm(p);
+    else if (r.selection === 3) styleForm(p);
+    else if (r.selection === 4 && isAdmin(p)) openAdmin(p);
   });
+}
+
+function toggleSelfDeaf(p) {
+  const k = key(p.name);
+  if (S.selfDeaf.has(k)) { S.selfDeaf.delete(k); p.sendMessage("§a[ไมค์] เปิดหูแล้ว ได้ยินคนอื่นตามปกติ"); }
+  else { S.selfDeaf.add(k); p.sendMessage("§c[ไมค์] ปิดหูตัวเอง — จะไม่ได้ยินใคร §7(เปิดคืนได้ในเมนูไมค์หรือ /astra:deaf)"); }
+  save(); mirrorPlayer(p);
+}
+function styleForm(p) {
+  const k = key(p.name);
+  new ModalFormData()
+    .title("สัญลักษณ์ตอนฉันพูด")
+    .dropdown(S.showTalking ? "คนอื่นจะเห็นสัญลักษณ์นี้ตอนคุณพูด" : "§cตอนนี้แอดมินปิดสัญลักษณ์คนพูดทั้งเซิฟอยู่", STYLES, { defaultValueIndex: styleOf(k) })
+    .show(p)
+    .then((r) => {
+      if (r.canceled || !r.formValues) return;
+      S.style.set(k, Number(r.formValues[0]) || 0); save(); updateNameTags();
+      p.sendMessage(`§b[ไมค์] §fสัญลักษณ์ตอนพูด: §e${STYLES[styleOf(k)]}`);
+    });
+}
+
+// ---------------- วงระยะเสียง (เห็นคนเดียว) ----------------
+const rings = new Map(); // ชื่อตัวเล็ก -> { r, until }
+function showRing(p, r, seconds = 6) { if (r > 0) rings.set(key(p.name), { r, until: system.currentTick + seconds * 20 }); }
+function drawRings() {
+  if (!rings.size) return;
+  for (const [k, ring] of rings) {
+    const p = findPlayer(k);
+    if (!p || system.currentTick > ring.until) { rings.delete(k); continue; }
+    try {
+      const v = new MolangVariableMap();
+      v.setFloat("variable.radius", ring.r);
+      v.setFloat("variable.count", Math.min(220, Math.ceil(2 * Math.PI * ring.r * 1.6)));
+      const l = p.location;
+      const at = { x: l.x, y: l.y + 0.15, z: l.z };
+      if (typeof p.spawnParticle === "function") p.spawnParticle("astra:ring", at, v); // เห็นแค่ผู้เล่นคนนี้
+      else p.dimension.spawnParticle("astra:ring", at, v);
+    } catch { rings.delete(k); }
+  }
 }
 
 // ---------------- ระยะพูดของตัวเอง (ตั้งในเกม) ----------------
@@ -354,11 +415,13 @@ function setMyRange(p, n) {
   const k = key(p.name);
   if (!n || n >= S.range) S.prange.delete(k); else S.prange.set(k, n);
   prVersion++; save(); mirrorState();
+  showRing(p, Math.min(S.prange.get(k) || S.range, S.range));
   p.sendMessage(S.prange.has(k) ? `§b[ไมค์] §fระยะเสียงของคุณ: §e${n} บล็อค§7 (คนที่ไกลกว่านี้จะไม่ได้ยินคุณ)` : `§b[ไมค์] §fใช้ระยะเต็มของเซิฟ §e${S.range} บล็อค`);
 }
 function myRangeForm(p) {
   if (!S.personal) return p.sendMessage("§c[ไมค์] แอดมินปิดการตั้งระยะเสียงเองไว้");
   const cur = S.prange.get(key(p.name)) || S.range;
+  showRing(p, Math.min(cur, S.range), 30);
   new ModalFormData()
     .title("ระยะเสียงของฉัน")
     .slider(`คนที่อยู่ไกลกว่านี้จะไม่ได้ยินคุณ\n§7(สูงสุดตามเซิฟ ${S.range} บล็อค — ตั้งต่ำๆ ไว้กระซิบ)`, 1, Math.max(1, S.range), { valueStep: 1, defaultValue: Math.min(cur, Math.max(1, S.range)) })
@@ -377,7 +440,7 @@ function openAdmin(p) {
     .button(`หูทั้งเซิฟ: ${onoff(S.hearEnabled)}`, "textures/items/record_cat")
     .button("จัดการผู้เล่นรายคน", "textures/items/name_tag")
     .button("§dประกาศ", "textures/items/book_writable")
-    .button(`ไอคอนไมค์บนหัวคนพูด: ${onoff(S.showTalking)}\n§8ป้ายชื่อ ((♪)): ${onoff(S.showTalkTag)}`, "textures/items/sign")
+    .button(`สัญลักษณ์คนพูด: ${onoff(S.showTalking)}\n§8แบบเริ่มต้น: ${STYLES[S.defStyle]}`, "textures/items/sign")
     .button("รับไอเท็มไมค์ / แจกทุกคน", "textures/items/iron_ingot")
     .button(`§dเปลี่ยนเสียง §8(ของคุณ: ${VFX_NAMES[S.vfx.get(key(p.name)) || 0]})`, "textures/items/goat_horn")
     .button(`§9กำแพงกั้นเสียง & เอฟเฟกต์\n§8ผนัง: ${S.occEnabled ? "§aเปิด" : "§cปิด"} §8• ใต้น้ำ: ${S.waterEnabled ? "§aเปิด" : "§cปิด"}`, "textures/blocks/stonebrick")
@@ -429,14 +492,14 @@ function fxForm(p) {
 
 function talkIconMenu(p) {
   new ModalFormData()
-    .title("แสดงคนที่กำลังพูด")
-    .toggle("ไอคอนไมค์ลอยบนหัว (ทุกคนเห็น)", { defaultValue: S.showTalking })
-    .toggle("ต่อท้ายป้ายชื่อด้วย ((♪))", { defaultValue: S.showTalkTag })
+    .title("สัญลักษณ์คนที่กำลังพูด")
+    .toggle("เปิดสัญลักษณ์คนพูด (ทั้งเซิฟ)", { defaultValue: S.showTalking })
+    .dropdown("แบบเริ่มต้น (ผู้เล่นเปลี่ยนเองได้ในเมนูไมค์)", STYLES, { defaultValueIndex: S.defStyle })
     .submitButton("บันทึก")
     .show(p)
     .then((r) => {
-      if (r.canceled) return openAdmin(p);
-      [S.showTalking, S.showTalkTag] = r.formValues;
+      if (r.canceled || !r.formValues) return openAdmin(p);
+      S.showTalking = !!r.formValues[0]; S.defStyle = Number(r.formValues[1]) || 0;
       save(); updateNameTags(); openAdmin(p);
     });
 }
@@ -450,6 +513,7 @@ function rangeForm(p) {
     .then((r) => {
       if (r.canceled) return openAdmin(p);
       S.range = clampRange(r.formValues[0]);
+      showRing(p, S.range);
       save();
       world.sendMessage(`§6[ไมค์] §fระยะไมค์ถูกตั้งเป็น §e${S.range} บล็อค`);
       openAdmin(p);
@@ -609,6 +673,14 @@ system.beforeEvents.startup.subscribe((ev) => {
     return { status: CustomCommandStatus.Success };
   });
   reg.registerCommand({
+    name: "astra:deaf", description: "ปิด/เปิดหูตัวเอง (ไม่ได้ยินใคร)",
+    permissionLevel: CommandPermissionLevel.Any, cheatsRequired: false,
+  }, (origin) => {
+    const p = origin.sourceEntity;
+    if (p?.typeId === "minecraft:player") system.run(() => toggleSelfDeaf(p));
+    return { status: CustomCommandStatus.Success };
+  });
+  reg.registerCommand({
     name: "astra:vfx", description: "เปลี่ยนเสียง (เฉพาะแอดมิน/OP)",
     permissionLevel: CommandPermissionLevel.Any, cheatsRequired: false,
   }, (origin) => {
@@ -655,7 +727,8 @@ export function startCore(t) {
     mirrorState();
     transport.start(core);
     system.runInterval(drawTalkingIcons, 2);
-    system.runInterval(updateEnv, 10);
+    system.runInterval(updateEnv, 5);
+    system.runInterval(drawRings, 4);
     console.warn(`[MCVoice] เริ่มทำงาน (${transport.mode}) ระยะ ${S.range}`);
   });
 }

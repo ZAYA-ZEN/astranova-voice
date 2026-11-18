@@ -604,6 +604,8 @@ for (const ev of ["pointerup", "pointercancel", "pointerleave"]) mic.addEventLis
 $("btnDeaf").onclick = () => { deaf = !deaf; sendState(); pushOpts(); renderMic(); };
 $("mVad").onclick = () => { mode = "vad"; store.set("mode", mode); pushOpts(); renderMic(); };
 $("mPtt").onclick = () => { mode = "ptt"; store.set("mode", mode); pushOpts(); renderMic(); };
+const syncPttBox = () => { if ($("pttOn")) $("pttOn").checked = mode === "ptt"; };
+$("mVad").addEventListener("click", syncPttBox); $("mPtt").addEventListener("click", syncPttBox);
 $("sens").oninput = (e) => { sens = +e.target.value; store.set("sens", sens); pushOpts(); renderMic(); };
 $("boost").oninput = (e) => { boost = +e.target.value; store.set("boost", boost); $("boostTxt").textContent = boost + "%"; pushOpts(); };
 $("echo").checked = echoGate;
@@ -622,7 +624,35 @@ document.addEventListener("keyup", (e) => { if (e.code === "KeyV") { pttDown = f
 if (window.mcvoiceNative) {
   window.mcvoiceNative.onToggleMute(() => setMuted(!muted));
   window.mcvoiceNative.onToggleDeaf(() => $("btnDeaf").click());
-  $("hotkeyHint").textContent = "ปุ่มลัดขณะเล่นเกม: F8 = ปิด/เปิดไมค์, F9 = ปิด/เปิดหู";
+  const HK = window.mcvoiceNative.hotkeys;
+  if (HK) {
+    $("hotkeyHint").textContent = "";
+    $("hkBox").classList.remove("hidden");
+    const NAMES = { mute: "mute", deaf: "deaf", ptt: "ptt" };
+    let hkAvail = true;
+    const renderHk = (st) => {
+      hkAvail = st.available;
+      for (const a in NAMES) $("hk_" + a).textContent = st.keys && st.keys[a] ? st.keys[a].label : "ไม่ได้ตั้ง";
+      document.querySelectorAll(".hkset,.hkclr").forEach((b) => (b.disabled = !hkAvail));
+      if (!hkAvail) $("hkHint").textContent = "เครื่องนี้ตั้งปุ่มเองไม่ได้ — ใช้ F8 = ปิด/เปิดไมค์, F9 = ปิด/เปิดหู";
+      $("pttOn").checked = mode === "ptt";
+    };
+    HK.get().then(renderHk);
+    HK.onChange(renderHk);
+    HK.onRecording((a) => {
+      document.querySelectorAll(".hkrow kbd").forEach((k) => k.classList.remove("rec"));
+      if (a) { $("hk_" + a).classList.add("rec"); $("hk_" + a).textContent = "กดปุ่ม…"; } else HK.get().then(renderHk);
+    });
+    document.querySelectorAll(".hkset").forEach((b) => (b.onclick = () => HK.record(b.dataset.a)));
+    document.querySelectorAll(".hkclr").forEach((b) => (b.onclick = () => HK.clear(b.dataset.a).then(renderHk)));
+    HK.onChange((st) => { if (st.keys && st.keys.ptt && mode !== "ptt" && !store.get("pttAsked", false)) { store.set("pttAsked", true); $("mPtt").click(); $("pttOn").checked = true; } });
+    $("pttOn").onchange = (e) => { $(e.target.checked ? "mPtt" : "mVad").click(); };
+    HK.onPtt((d) => {
+      if (mode !== "ptt") return;
+      if (d) engine.startAudio();
+      pttDown = !!d; pushOpts(); renderMic();
+    });
+  } else $("hotkeyHint").textContent = "ปุ่มลัดขณะเล่นเกม: F8 = ปิด/เปิดไมค์, F9 = ปิด/เปิดหู";
 } else if (SELF && IS_SAFARI) {
   $("hotkeyHint").innerHTML = "📱 เว็บบน iPhone: ต้องเปิดหน้านี้ค้างไว้ (ถ้าสลับแอปหรือล็อกจอ ไมค์จะหยุด) — เหมาะกับใช้คู่กับอีกเครื่องที่เล่นเกม<br>กด แชร์ → เพิ่มไปยังหน้าจอโฮม เพื่อเปิดแบบแอป";
 } else if (NATIVE) {

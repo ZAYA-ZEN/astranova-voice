@@ -1,7 +1,7 @@
 {
   "name": "astranova-voice",
   "productName": "Astra Nova Voice",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Astra Nova Voice - proximity voice chat for Minecraft Bedrock",
   "author": "Astra Nova",
   "main": "electron/main.js",
@@ -16,6 +16,7 @@
     "@capacitor/android": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@capacitor/ios": "^7.0.0",
+    "uiohook-napi": "^1.5.5",
     "ws": "^8.18.0"
   },
   "devDependencies": {
@@ -43,6 +44,7 @@
     "directories": {
       "output": "dist"
     },
-    "afterPack": "scripts/after-pack.js"
+    "afterPack": "scripts/after-pack.js",
+    "npmRebuild": false
   }
 }

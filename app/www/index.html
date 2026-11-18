@@ -92,6 +92,13 @@
   .feat b { display:block; font-size:22px; margin-bottom:4px; }
   .micbtn { background:radial-gradient(circle at 50% 35%, #1f5a43, #0f2a20); box-shadow:0 0 30px #3ddc8433; }
   .micbtn.off { background:radial-gradient(circle at 50% 35%, #5a1f2a, #2a0f14); box-shadow:0 0 30px #ff5a7a33; }
+  .hkrow { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .hkrow span { flex:1; font-size:14px; }
+  .hkrow kbd { white-space:nowrap; min-width:70px; text-align:center; padding:6px 10px; border-radius:8px; background:#0b0d1c; border:1px solid #4a4590; color:#e9d5ff; font:600 13px ui-monospace,Menlo,monospace; }
+  .hkrow kbd.rec { border-color:#f0abfc; color:#f0abfc; animation:hkblink 1s infinite; }
+  @keyframes hkblink { 50% { opacity:.4; } }
+  .hkrow button { width:auto; margin:0; padding:6px 10px; font-size:13px; white-space:nowrap; flex:0 0 auto; }
+  .hkrow .hkclr { padding:6px 9px; opacity:.7; }
 </style>
 </head>
 <body>
@@ -204,6 +211,14 @@
       <label>เสียงลำโพงรวม <span class="hint" id="volTxt">100%</span></label>
       <input type="range" id="vol" min="0" max="200" value="100">
       <div class="hint" id="hotkeyHint"></div>
+      <div id="hkBox" class="hidden" style="margin-top:12px">
+        <b>⌨️ ปุ่มลัด (ใช้ได้ขณะเล่นเกม)</b>
+        <div class="hkrow"><span>ปิด/เปิดไมค์</span><kbd id="hk_mute">-</kbd><button class="hkset" data-a="mute">ตั้งปุ่ม</button><button class="hkclr" data-a="mute" title="ลบ">✕</button></div>
+        <div class="hkrow"><span>ปิด/เปิดหู</span><kbd id="hk_deaf">-</kbd><button class="hkset" data-a="deaf">ตั้งปุ่ม</button><button class="hkclr" data-a="deaf" title="ลบ">✕</button></div>
+        <div class="hkrow"><span>กดค้างเพื่อพูด</span><kbd id="hk_ptt">-</kbd><button class="hkset" data-a="ptt">ตั้งปุ่ม</button><button class="hkclr" data-a="ptt" title="ลบ">✕</button></div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--txt)"><input type="checkbox" id="pttOn" style="width:20px;height:20px"> ใช้โหมดกดค้างเพื่อพูด (ปล่อยปุ่ม = ไมค์ไม่ส่งเสียง)</label>
+        <div class="hint" id="hkHint">กด "ตั้งปุ่ม" แล้วกดปุ่มคีย์บอร์ดหรือปุ่มข้างเมาส์ที่ต้องการ • Esc = ยกเลิก</div>
+      </div>
       <div class="hint" id="codecTxt"></div>
     </div>
 

@@ -41,7 +41,7 @@ const S = {
   vfx: new Map(), // เปลี่ยนเสียง (แอดมินเท่านั้น): ชื่อตัวเล็ก -> แบบเสียง
   prange: new Map(), // ระยะพูดที่ผู้เล่นตั้งเองในเกม: ชื่อตัวเล็ก -> บล็อค
   style: new Map(), // แบบที่ผู้เล่นคนนั้น "เห็น" สัญลักษณ์ของทุกคน (เห็นแค่ตัวเอง)
-  side: new Map(), // แจ้งเตือนข้างจอ เปิด/ปิด (ค่าเริ่มต้น เปิด)
+  side: new Map(), // แจ้งเตือนข้างจอ เปิด/ปิด (ค่าเริ่มต้น ปิด)
   selfDeaf: new Set(), // ปิดหูตัวเอง
   defStyle: 0, // สัญลักษณ์เริ่มต้นของเซิฟ
 };
@@ -280,7 +280,7 @@ function handleResponse(r) {
 
 const decorated = new Map();
 const styleOf = (k) => (S.style.has(k) ? S.style.get(k) : S.defStyle);
-const sideOf = (k) => (S.side.has(k) ? S.side.get(k) : true);
+const sideOf = (k) => S.side.get(k) === true; // ค่าเริ่มต้นปิด — ขึ้นเฉพาะคนที่เปิดเองในเมนูไมค์
 // เวอร์ชันก่อนเขียนรูปลงป้ายชื่อ (ทุกคนเห็นเหมือนกัน) — ตอนนี้ใช้พาร์ติเคิลที่เห็นเฉพาะคนดูแทน จึงแค่คืนป้ายชื่อเดิม
 function updateNameTags() {
   if (!decorated.size) return;

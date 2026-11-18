@@ -41,7 +41,7 @@ const game = {
 // เผื่อเน็ตสะดุด: ถือว่าเกมยังออนไลน์ 2 นาที หลังข้อมูลล่าสุด
 const gameOnline = () => Date.now() - game.lastSync < 120000;
 // คนที่หายจากข้อมูลแค่ชั่วครู่ (คำสั่งช้า/แพ็กเก็ตหาย) ยังนับว่าอยู่ในเกมต่อ 2 นาที — กันแอปเด้งเป็น "ไม่ได้เข้าเกม"
-const PRESENCE_GRACE = 120000; // 2 นาที (คนที่ออกเกมจริงถูกลบทันทีจากรายชื่อ/อีเวนต์ออกเกม)
+const PRESENCE_GRACE = 120000; // 2 นาที — AFK/เปลี่ยนมิติ/เน็ตสะดุด ไม่หลุด
 const seenAt = new Map(); // key -> { p, at }
 
 // ---------- แอปที่เชื่อมอยู่ ----------
@@ -167,8 +167,8 @@ function applyGame(body) {
   for (const k of ["muted", "deaf", "mega", "self"]) game[k] = new Set((body[k] || []).map(key));
   const tNow = Date.now();
   for (const p of body.players || []) seenAt.set(key(p.n), { p, at: tNow });
-  const left = new Set((body.left || []).map(key)); // ออกจากเกมจริง (แอดออนบอกมา) → ลบทันที
-  for (const [k, v] of seenAt) if (left.has(k) || tNow - v.at > PRESENCE_GRACE) seenAt.delete(k);
+  // ไม่ลบทันทีแม้ออกเกม: ไมค์หลุดก็ต่อเมื่อไม่เจอผู้เล่นคนนั้นในเซิฟติดต่อกันเกิน 2 นาที
+  for (const [k, v] of seenAt) if (tNow - v.at > PRESENCE_GRACE) seenAt.delete(k);
   game.players = new Map([...seenAt].map(([k, v]) => [k, v.p]));
   game.water = new Set((body.players || []).filter((p) => p.w).map((p) => key(p.n)).concat((body.water || []).map(key)));
   game.prange = new Map(Object.entries(body.prange || {}).map(([n, v]) => [key(n), Math.max(1, Math.min(100, Number(v) || 100))]));

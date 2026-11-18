@@ -98,7 +98,8 @@ function mix(speakerKey, listenerKey) {
   if (!s || !l) return null;
   if (game.mega.has(speakerKey)) return { gain: 1, pan: 0, dist: 0, lp: 0 };
   if (s.d !== l.d) return null;
-  const R = Math.min(range(), talkRanges.has(speakerKey) ? talkRanges.get(speakerKey) : Infinity);
+  const fx = game.settings;
+  const R = Math.min(range(), fx.personal !== false && talkRanges.has(speakerKey) ? talkRanges.get(speakerKey) : Infinity);
   if (R <= 0) return null;
   const dx = s.x - l.x, dy = s.y - l.y, dz = s.z - l.z;
   const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -106,15 +107,17 @@ function mix(speakerKey, listenerKey) {
   // ใกล้ (<= 1.5 บล็อค) ได้ยินเต็ม แล้วค่อยๆ เบาลงจนเงียบที่ขอบระยะ
   const full = Math.min(1.5, R * 0.1);
   const t = dist <= full ? 0 : (dist - full) / (R - full);
-  const gain = Math.pow(1 - t, 1.6);
+  // falloff: 0 = ค่อยๆ เบา (ธรรมชาติ), 1 = เบาลงแบบเส้นตรง, 2 = ดังเท่ากันทั้งระยะ
+  const gain = fx.falloff === 2 ? 1 : fx.falloff === 1 ? 1 - t : Math.pow(1 - t, 1.6);
   // สเตอริโอ: ซ้าย/ขวาตามทิศที่หัน (yaw ของ Minecraft: 0 = หันไปทาง +Z)
   const yaw = (l.yaw * Math.PI) / 180;
   const h = Math.hypot(dx, dz);
   let pan = 0;
-  if (h > 0.5) pan = ((dx * -Math.cos(yaw) + dz * -Math.sin(yaw)) / h) * 0.75;
+  if (h > 0.5 && fx.stereo !== false) pan = ((dx * -Math.cos(yaw) + dz * -Math.sin(yaw)) / h) * 0.75;
   // ผนังกั้น / ใต้น้ำ → เสียงทึบ (กรองเสียงแหลมออก) และเบาลง
   let g = gain, lp = 0;
   const occ = game.occ.get(speakerKey < listenerKey ? speakerKey + "|" + listenerKey : listenerKey + "|" + speakerKey) || 0;
+  if (occ >= 3) return null; // ผนังหนาจนเสียงไม่ผ่าน
   if (occ >= 2) { g *= 0.45; lp = 800; } else if (occ === 1) { g *= 0.7; lp = 1600; }
   if (game.water.has(speakerKey) || game.water.has(listenerKey)) { g *= 0.75; lp = lp ? Math.min(lp, 500) : 500; }
   return { gain: g, pan, dist, lp };
@@ -154,7 +157,8 @@ function handleSync(body, local, ip) {
 function applyGame(body) {
   game.lastSync = Date.now();
   const st = body.settings || {};
-  game.settings = { range: Number(st.range) || 0, micEnabled: st.micEnabled !== false, hearEnabled: st.hearEnabled !== false };
+  game.settings = { range: Number(st.range) || 0, micEnabled: st.micEnabled !== false, hearEnabled: st.hearEnabled !== false,
+    stereo: st.stereo !== false, personal: st.personal !== false, falloff: Number(st.falloff) || 0 };
   for (const k of ["muted", "deaf", "mega", "self"]) game[k] = new Set((body[k] || []).map(key));
   game.players = new Map((body.players || []).map((p) => [key(p.n), p]));
   game.water = new Set((body.players || []).filter((p) => p.w).map((p) => key(p.n)).concat((body.water || []).map(key)));
@@ -294,7 +298,9 @@ mcWss.on("connection", (ws, req) => {
       const r1 = await cmd(`scoreboard players test "${k}" astra_occ 1 *`);
       if (!r1 || r1.statusCode !== 0) continue;
       const r2 = await cmd(`scoreboard players test "${k}" astra_occ 2 *`);
-      occ[k] = r2 && r2.statusCode === 0 ? 2 : 1;
+      if (!r2 || r2.statusCode !== 0) { occ[k] = 1; continue; }
+      const r3 = await cmd(`scoreboard players test "${k}" astra_occ 3 *`);
+      occ[k] = r3 && r3.statusCode === 0 ? 3 : 2;
     }
     mcWorld.occ = occ;
     // ค่าตั้งจากแอดออน: astra_cfg = ระยะ*4 + ไมค์*2 + หู (ค้นหาแบบแบ่งครึ่ง)
@@ -308,6 +314,12 @@ mcWss.on("connection", (ws, req) => {
         if (r.statusCode === 0) hi = mid; else lo = mid + 1;
       }
       mcWorld.cfg = { range: lo >> 2, micEnabled: !!(lo & 2), hearEnabled: !!(lo & 1) };
+      // astra_fx = สเตอริโอ*1 + ปรับระยะเองได้*2 + แบบเบาลง*4
+      let a = 0, b = 15;
+      if ((await cmd("scoreboard players test astra_fx astra 0 15"))?.statusCode === 0) {
+        while (a < b) { const m = (a + b) >> 1; const r = await cmd(`scoreboard players test astra_fx astra ${a} ${m}`); if (!r) break; if (r.statusCode === 0) b = m; else a = m + 1; }
+        Object.assign(mcWorld.cfg, { stereo: !!(a & 1), personal: !!(a & 2), falloff: a >> 2 });
+      }
     } else mcWorld.cfg = null; // ไม่มีแอดออน → ใช้ค่าเริ่มต้น
   };
   // ตำแหน่งผู้เล่นทุก 0.2 วินาที
@@ -499,7 +511,7 @@ setInterval(() => {
     nearby.sort((a, b) => a.d - b.d);
     sendJSON(c, {
       t: "status", gameOnline: gameOnline(), inGame: !!me, range: range(),
-      micEnabled: game.settings.micEnabled, hearEnabled: game.settings.hearEnabled,
+      micEnabled: game.settings.micEnabled, hearEnabled: game.settings.hearEnabled, personal: game.settings.personal !== false,
       adminMuted: game.muted.has(c.key), adminDeaf: game.deaf.has(c.key), mega: game.mega.has(c.key),
       itemMuted: game.self.has(c.key), canSpeak: canSpeak(c), canHear: canHear(c), nearby,
     });

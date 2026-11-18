@@ -512,6 +512,7 @@ function renderStatus() {
   const s = status;
   $("rangeTxt").textContent = "ระยะเซิฟ " + s.range + " บล็อค";
   if (s.range !== maxRange) { maxRange = s.range; renderMyRange(); }
+  $("myRangeCard").classList.toggle("hidden", s.personal === false);
   renderBadges(); renderMic();
   const ul = $("nearby");
   if (!s.nearby.length) { ul.innerHTML = '<li class="hint">ไม่มีใครอยู่ในระยะ</li>'; return; }

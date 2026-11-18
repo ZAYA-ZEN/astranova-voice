@@ -20,6 +20,15 @@ const S = {
   hearEnabled: true, // หูทั้งเซิฟ
   showTalking: true, // ไอคอนไมค์ลอยบนหัวคนที่กำลังพูด (ทุกคนเห็น)
   showTalkTag: false, // ต่อท้ายชื่อด้วย ((♪)) ตอนพูด
+  // กำแพงกั้นเสียง + เอฟเฟกต์ (ตั้งได้ในแผงแอดมิน)
+  occEnabled: true, // เปิดระบบกำแพงกั้นเสียง
+  occThin: 1,       // ผนังกี่บล็อค = เสียงอู้เล็กน้อย
+  occThick: 3,      // ผนังกี่บล็อค = เสียงอู้มาก
+  occBlock: 0,      // ผนังกี่บล็อค = ไม่ได้ยินเลย (0 = ไม่ตัดเสียง)
+  waterEnabled: true, // ใต้น้ำเสียงอู้
+  stereo: true,     // เสียงซ้าย/ขวาตามทิศ
+  personal: true,   // ผู้เล่นปรับระยะพูดของตัวเองในแอปได้
+  falloff: 0,       // 0 ธรรมชาติ, 1 เส้นตรง, 2 ดังเท่ากันทั้งระยะ
   muted: new Set(), // แอดมินปิดไมค์รายคน (ชื่อตัวเล็ก)
   deaf: new Set(), // แอดมินปิดหูรายคน
   mega: new Set(), // โทรโข่ง: พูดแล้วได้ยินทั้งเซิฟ
@@ -46,6 +55,7 @@ function save() {
       DP_KEY,
       JSON.stringify({
         range: S.range, micEnabled: S.micEnabled, hearEnabled: S.hearEnabled, showTalking: S.showTalking, showTalkTag: S.showTalkTag,
+        ...Object.fromEntries(["occEnabled", "occThin", "occThick", "occBlock", "waterEnabled", "stereo", "personal", "falloff"].map((k) => [k, S[k]])),
         muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
       })
     );
@@ -58,6 +68,7 @@ function load() {
     const o = JSON.parse(raw);
     if (typeof o.range === "number") S.range = clampRange(o.range);
     for (const k of ["micEnabled", "hearEnabled", "showTalking", "showTalkTag"]) if (typeof o[k] === "boolean") S[k] = o[k];
+    for (const k of ["occEnabled", "occThin", "occThick", "occBlock", "waterEnabled", "stereo", "personal", "falloff"]) if (typeof o[k] === typeof S[k]) S[k] = o[k];
     for (const k of ["muted", "deaf", "mega", "self"]) if (Array.isArray(o[k])) S[k] = new Set(o[k]);
   } catch (e) { console.warn("[MCVoice] load failed " + e); }
 }
@@ -85,7 +96,7 @@ function buildPayload() {
   }
   return {
     secret: CONFIG.secret,
-    settings: { range: S.range, micEnabled: S.micEnabled, hearEnabled: S.hearEnabled },
+    settings: { range: S.range, micEnabled: S.micEnabled, hearEnabled: S.hearEnabled, stereo: S.stereo, personal: S.personal, falloff: S.falloff },
     muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
     players,
     claims: [...claims.values()].map((c) => [c.n, c.code]),
@@ -109,14 +120,16 @@ function countWalls(dim, a, b) {
   const dist = Math.hypot(dx, dy, dz);
   const steps = Math.ceil(dist / 0.5);
   let count = 0, last = "";
+  const max = Math.max(S.occThin, S.occThick, S.occBlock || 0);
   for (let i = 1; i < steps; i++) {
     const t = i / steps, x = a.x + dx * t, y = a.y + dy * t, z = a.z + dz * t;
     const k = Math.floor(x) + "," + Math.floor(y) + "," + Math.floor(z);
     if (k === last) continue;
     last = k;
-    if (solidAt(dim, x, y, z) && ++count >= 3) break;
+    if (solidAt(dim, x, y, z) && ++count >= max) break;
   }
-  return count >= 3 ? 2 : count >= 1 ? 1 : 0;
+  if (S.occBlock > 0 && count >= S.occBlock) return 3; // ไม่ได้ยินเลย
+  return count >= S.occThick ? 2 : count >= S.occThin ? 1 : 0;
 }
 function updateEnv() {
   const ps = world.getAllPlayers();
@@ -125,13 +138,14 @@ function updateEnv() {
     try {
       const h = p.getHeadLocation();
       const b = p.dimension.getBlock({ x: Math.floor(h.x), y: Math.floor(h.y), z: Math.floor(h.z) });
-      if (b && b.typeId.includes("water")) water.add(key(p.name));
+      if (S.waterEnabled && b && b.typeId.includes("water")) water.add(key(p.name));
       heads.push({ k: key(p.name), d: p.dimension, h });
     } catch { /* ignore */ }
   }
   const occ = {}, R = Math.min(S.range, 48);
   for (let i = 0; i < heads.length; i++) for (let j = i + 1; j < heads.length; j++) {
     const a = heads[i], b = heads[j];
+    if (!S.occEnabled) break;
     if (a.d.id !== b.d.id || Math.hypot(a.h.x - b.h.x, a.h.y - b.h.y, a.h.z - b.h.z) > R) continue;
     const lvl = countWalls(a.d, a.h, b.h);
     if (lvl) occ[[a.k, b.k].sort().join("|")] = lvl;
@@ -169,6 +183,7 @@ function mirrorState() {
     const sb = world.scoreboard;
     const obj = sb.getObjective("astra") ?? sb.addObjective("astra", "Astra Voice");
     obj.setScore("astra_cfg", S.range * 4 + (S.micEnabled ? 2 : 0) + (S.hearEnabled ? 1 : 0));
+    obj.setScore("astra_fx", (S.stereo ? 1 : 0) + (S.personal ? 2 : 0) + S.falloff * 4);
   } catch (e) { console.warn("[MCVoice] scoreboard " + e); }
   for (const p of world.getAllPlayers()) mirrorPlayer(p);
 }
@@ -295,6 +310,7 @@ function openAdmin(p) {
     .button("§dประกาศ", "textures/items/book_writable")
     .button(`ไอคอนไมค์บนหัวคนพูด: ${onoff(S.showTalking)}\n§8ป้ายชื่อ ((♪)): ${onoff(S.showTalkTag)}`, "textures/items/sign")
     .button("รับไอเท็มไมค์ / แจกทุกคน", "textures/items/iron_ingot")
+    .button(`§9กำแพงกั้นเสียง & เอฟเฟกต์\n§8ผนัง: ${S.occEnabled ? "§aเปิด" : "§cปิด"} §8• ใต้น้ำ: ${S.waterEnabled ? "§aเปิด" : "§cปิด"}`, "textures/blocks/stonebrick")
     .show(p)
     .then((r) => {
       if (r.canceled) return;
@@ -308,7 +324,35 @@ function openAdmin(p) {
         case 4: return announceForm(p);
         case 5: return talkIconMenu(p);
         case 6: return giveMenu(p);
+        case 7: return fxForm(p);
       }
+    });
+}
+
+const FALLOFF = ["ค่อยๆ เบาลง (ธรรมชาติ)", "เบาลงแบบเส้นตรง", "ดังเท่ากันทั้งระยะ"];
+function fxForm(p) {
+  new ModalFormData()
+    .title("กำแพงกั้นเสียง & เอฟเฟกต์")
+    .toggle("§lเปิดระบบกำแพงกั้นเสียง§r\n§7เสียงจะอู้เมื่อมีบล็อคทึบขวางระหว่างคนพูดกับคนฟัง", { defaultValue: S.occEnabled })
+    .slider("ผนังกี่บล็อค = §eเสียงอู้เล็กน้อย§r (เบาลง 30%)", 1, 10, { valueStep: 1, defaultValue: S.occThin })
+    .slider("ผนังกี่บล็อค = §6เสียงอู้มาก§r (เบาลง 55%)", 1, 15, { valueStep: 1, defaultValue: S.occThick })
+    .slider("ผนังกี่บล็อค = §cไม่ได้ยินเลย§r (0 = ไม่ตัดเสียง)", 0, 20, { valueStep: 1, defaultValue: S.occBlock })
+    .toggle("ใต้น้ำเสียงอู้", { defaultValue: S.waterEnabled })
+    .toggle("เสียงสเตอริโอ ซ้าย/ขวาตามทิศที่หัน", { defaultValue: S.stereo })
+    .toggle("ให้ผู้เล่นปรับระยะพูดของตัวเองในแอปได้", { defaultValue: S.personal })
+    .dropdown("ความดังตามระยะ", FALLOFF, { defaultValueIndex: S.falloff })
+    .show(p)
+    .then((r) => {
+      if (r.canceled || !r.formValues) return openAdmin(p);
+      const v = r.formValues;
+      S.occEnabled = !!v[0];
+      S.occThin = Math.round(v[1]);
+      S.occThick = Math.max(S.occThin, Math.round(v[2]));
+      S.occBlock = Math.round(v[3]) && Math.max(S.occThick, Math.round(v[3]));
+      S.waterEnabled = !!v[4]; S.stereo = !!v[5]; S.personal = !!v[6]; S.falloff = Number(v[7]) || 0;
+      save();
+      p.sendMessage(`§6[ไมค์] §fบันทึกแล้ว: ผนัง ${onoff(S.occEnabled)}§f (อู้ ${S.occThin} / อู้มาก ${S.occThick} / ตัด ${S.occBlock || "ไม่ตัด"} บล็อค) • ใต้น้ำ ${onoff(S.waterEnabled)}§f • สเตอริโอ ${onoff(S.stereo)}§f • ระยะส่วนตัว ${onoff(S.personal)}`);
+      openAdmin(p);
     });
 }
 

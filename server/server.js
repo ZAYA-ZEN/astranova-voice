@@ -99,7 +99,8 @@ function mix(speakerKey, listenerKey) {
   if (game.mega.has(speakerKey)) return { gain: 1, pan: 0, dist: 0, lp: 0 };
   if (s.d !== l.d) return null;
   const fx = game.settings;
-  const R = Math.min(range(), fx.personal !== false && talkRanges.has(speakerKey) ? talkRanges.get(speakerKey) : Infinity);
+  const own = fx.personal === false ? Infinity : Math.min(talkRanges.has(speakerKey) ? talkRanges.get(speakerKey) : Infinity, (game.prange && game.prange.get(speakerKey)) || Infinity);
+  const R = Math.min(range(), own);
   if (R <= 0) return null;
   const dx = s.x - l.x, dy = s.y - l.y, dz = s.z - l.z;
   const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -162,6 +163,7 @@ function applyGame(body) {
   for (const k of ["muted", "deaf", "mega", "self"]) game[k] = new Set((body[k] || []).map(key));
   game.players = new Map((body.players || []).map((p) => [key(p.n), p]));
   game.water = new Set((body.players || []).filter((p) => p.w).map((p) => key(p.n)).concat((body.water || []).map(key)));
+  game.prange = new Map(Object.entries(body.prange || {}).map(([n, v]) => [key(n), Math.max(1, Math.min(100, Number(v) || 100))]));
   game.vfx = new Map(Object.entries(body.vfx || {}).map(([n, v]) => [key(n), Math.max(0, Math.min(7, Number(v) || 0))]));
   game.occ = new Map(Object.entries(body.occ || {}).map(([k, v]) => [k.split("|").map(key).sort().join("|"), Number(v) || 0]));
   for (const a of body.announce || []) broadcastJSON({ t: "announce", text: String(a.text).slice(0, 300), by: a.by });
@@ -290,6 +292,21 @@ mcWss.on("connection", (ws, req) => {
       if (r && r.statusCode === 0 && Array.isArray(r.victim)) for (const n of r.victim) vf[n] = i;
     }
     mcWorld.vfx = vf;
+    // ระยะพูดที่ผู้เล่นตั้งในเกม: อ่านใหม่เฉพาะตอน astra_prv เปลี่ยน
+    const prv = await cmd(`scoreboard players test astra_prv astra ${mcWorld.prv || 0} ${mcWorld.prv || 0}`);
+    if (prv && prv.statusCode !== 0) {
+      let a = 0, b = 100000;
+      while (a < b) { const m = (a + b) >> 1; const r = await cmd(`scoreboard players test astra_prv astra ${a} ${m}`); if (!r) break; if (r.statusCode === 0) b = m; else a = m + 1; }
+      const pr = {};
+      for (const n of mcWorld.names || []) {
+        const has = await cmd(`scoreboard players test ${q(n)} astra_pr 1 100`);
+        if (!has || has.statusCode !== 0) continue;
+        let lo = 1, hi = 100;
+        while (lo < hi) { const m = (lo + hi) >> 1; const r = await cmd(`scoreboard players test ${q(n)} astra_pr ${lo} ${m}`); if (!r) break; if (r.statusCode === 0) hi = m; else lo = m + 1; }
+        pr[n] = lo;
+      }
+      mcWorld.prange = pr; mcWorld.prv = a;
+    }
     // คำสั่ง /astra:link ในเกม → แอดออนติด tag astra_lc_รหัส
     for (const code of [...linkCodes.keys()]) {
       const r = await cmd(`testfor @a[tag=astra_lc_${code}]`);
@@ -348,6 +365,7 @@ mcWss.on("connection", (ws, req) => {
       ...mcWorld.flags,
       water: mcWorld.water,
       vfx: mcWorld.vfx || {},
+      prange: mcWorld.prange || {},
       occ: mcWorld.occ,
       players: [...mcWorld.pos.values()],
     });

@@ -34,6 +34,7 @@ const S = {
   mega: new Set(), // โทรโข่ง: พูดแล้วได้ยินทั้งเซิฟ
   self: new Set(), // ผู้เล่นปิดไมค์ตัวเองด้วยไอเท็ม
   vfx: new Map(), // เปลี่ยนเสียง (แอดมินเท่านั้น): ชื่อตัวเล็ก -> แบบเสียง
+  prange: new Map(), // ระยะพูดที่ผู้เล่นตั้งเองในเกม: ชื่อตัวเล็ก -> บล็อค
 };
 let announceQueue = [];
 let busy = false;
@@ -59,6 +60,7 @@ function save() {
         ...Object.fromEntries(["occEnabled", "occThin", "occThick", "occBlock", "waterEnabled", "stereo", "personal", "falloff"].map((k) => [k, S[k]])),
         muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
         vfx: Object.fromEntries(S.vfx),
+        prange: Object.fromEntries(S.prange),
       })
     );
   } catch (e) { console.warn("[MCVoice] save failed " + e); }
@@ -72,6 +74,7 @@ function load() {
     for (const k of ["micEnabled", "hearEnabled", "showTalking", "showTalkTag"]) if (typeof o[k] === "boolean") S[k] = o[k];
     for (const k of ["occEnabled", "occThin", "occThick", "occBlock", "waterEnabled", "stereo", "personal", "falloff"]) if (typeof o[k] === typeof S[k]) S[k] = o[k];
     for (const k of ["muted", "deaf", "mega", "self"]) if (Array.isArray(o[k])) S[k] = new Set(o[k]);
+    if (o.prange && typeof o.prange === "object") S.prange = new Map(Object.entries(o.prange).map(([k, v]) => [k, Number(v) || 0]));
     if (o.vfx && typeof o.vfx === "object") S.vfx = new Map(Object.entries(o.vfx).map(([k, v]) => [k, Number(v) || 0]));
   } catch (e) { console.warn("[MCVoice] load failed " + e); }
 }
@@ -104,6 +107,7 @@ function buildPayload() {
     players,
     claims: [...claims.values()].map((c) => [c.n, c.code]),
     vfx: vfxNow(),
+    prange: prangeNow(),
     occ: env.occ,
     announce: announceQueue,
   };
@@ -219,6 +223,9 @@ function mirrorState() {
     const obj = sb.getObjective("astra") ?? sb.addObjective("astra", "Astra Voice");
     obj.setScore("astra_cfg", S.range * 4 + (S.micEnabled ? 2 : 0) + (S.hearEnabled ? 1 : 0));
     obj.setScore("astra_fx", (S.stereo ? 1 : 0) + (S.personal ? 2 : 0) + S.falloff * 4);
+    obj.setScore("astra_prv", prVersion);
+    const pr = sb.getObjective("astra_pr") ?? sb.addObjective("astra_pr", "Astra Range");
+    for (const p of world.getAllPlayers()) { const v = S.prange.get(key(p.name)); try { if (v) pr.setScore(p, v); else pr.removeParticipant(p); } catch {} }
   } catch (e) { console.warn("[MCVoice] scoreboard " + e); }
   for (const p of world.getAllPlayers()) mirrorPlayer(p);
 }
@@ -322,14 +329,41 @@ function openPlayerMenu(p) {
       `§rคนที่ได้ยินคุณ: ${near.length ? near.map((n) => `§a${n.n}§7(${n.d}ม.)`).join("§f, ") : "§7ไม่มี"}\n\n` +
       "§7วิธีใช้: เปิดแอป Astra Nova Voice > ใส่ชื่อ Xbox ของคุณ > ลิงก์อัตโนมัติ"
     )
-    .button(S.self.has(k) ? "§aเปิดไมค์" : "§cปิดไมค์", "textures/items/redstone_dust");
+    .button(S.self.has(k) ? "§aเปิดไมค์" : "§cปิดไมค์", "textures/items/redstone_dust")
+    .button(`ระยะเสียงของฉัน: §e${S.prange.get(k) ? Math.min(S.prange.get(k), S.range) + " บล็อค" : "เต็ม (" + S.range + ")"}`, "textures/items/spyglass");
   if (isAdmin(p)) f.button("§6แผงแอดมิน", "textures/items/gold_ingot");
   f.button("ปิด");
   f.show(p).then((r) => {
     if (r.canceled) return;
     if (r.selection === 0) { lastToggle.delete(k); toggleSelfMic(p); }
-    else if (r.selection === 1 && isAdmin(p)) openAdmin(p);
+    else if (r.selection === 1) myRangeForm(p);
+    else if (r.selection === 2 && isAdmin(p)) openAdmin(p);
   });
+}
+
+// ---------------- ระยะพูดของตัวเอง (ตั้งในเกม) ----------------
+let prVersion = 1;
+function prangeNow() {
+  const out = {};
+  for (const p of world.getAllPlayers()) { const v = S.prange.get(key(p.name)); if (v) out[p.name] = v; }
+  return out;
+}
+function setMyRange(p, n) {
+  if (!S.personal) return p.sendMessage("§c[ไมค์] แอดมินปิดการตั้งระยะเสียงเองไว้");
+  n = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+  const k = key(p.name);
+  if (!n || n >= S.range) S.prange.delete(k); else S.prange.set(k, n);
+  prVersion++; save(); mirrorState();
+  p.sendMessage(S.prange.has(k) ? `§b[ไมค์] §fระยะเสียงของคุณ: §e${n} บล็อค§7 (คนที่ไกลกว่านี้จะไม่ได้ยินคุณ)` : `§b[ไมค์] §fใช้ระยะเต็มของเซิฟ §e${S.range} บล็อค`);
+}
+function myRangeForm(p) {
+  if (!S.personal) return p.sendMessage("§c[ไมค์] แอดมินปิดการตั้งระยะเสียงเองไว้");
+  const cur = S.prange.get(key(p.name)) || S.range;
+  new ModalFormData()
+    .title("ระยะเสียงของฉัน")
+    .slider(`คนที่อยู่ไกลกว่านี้จะไม่ได้ยินคุณ\n§7(สูงสุดตามเซิฟ ${S.range} บล็อค — ตั้งต่ำๆ ไว้กระซิบ)`, 1, Math.max(1, S.range), { valueStep: 1, defaultValue: Math.min(cur, Math.max(1, S.range)) })
+    .show(p)
+    .then((r) => { if (!r.canceled && r.formValues) setMyRange(p, r.formValues[0]); });
 }
 
 // ---------------- แผงแอดมิน ----------------
@@ -518,6 +552,7 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
   if (!ev.initialSpawn) return;
   const p = ev.player;
   mirrorPlayer(p);
+  if (S.prange.has(key(p.name))) { prVersion++; system.runTimeout(mirrorState, 20); }
   system.runTimeout(() => {
     try {
       if (CONFIG.giveMicOnFirstJoin && !p.getDynamicProperty("mcvoice:gotMic")) {
@@ -562,6 +597,15 @@ system.beforeEvents.startup.subscribe((ev) => {
     const p = origin.sourceEntity;
     if (p?.typeId !== "minecraft:player") return { status: CustomCommandStatus.Failure, message: "ใช้ได้เฉพาะผู้เล่น" };
     system.run(() => claimLink(p, code));
+    return { status: CustomCommandStatus.Success };
+  });
+  reg.registerCommand({
+    name: "astra:range", description: "ตั้งระยะเสียงของตัวเอง (บล็อค) — 0 = ใช้ระยะเต็มของเซิฟ",
+    permissionLevel: CommandPermissionLevel.Any, cheatsRequired: false,
+    optionalParameters: [{ name: "blocks", type: CustomCommandParamType.Integer }],
+  }, (origin, blocks) => {
+    const p = origin.sourceEntity;
+    if (p?.typeId === "minecraft:player") system.run(() => (blocks === undefined ? myRangeForm(p) : setMyRange(p, blocks)));
     return { status: CustomCommandStatus.Success };
   });
   reg.registerCommand({

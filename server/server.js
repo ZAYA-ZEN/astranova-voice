@@ -38,7 +38,11 @@ const game = {
   players: new Map(), // key -> {n,x,y,z,d,yaw}
   lastSync: 0,
 };
-const gameOnline = () => Date.now() - game.lastSync < 5000;
+// เผื่อเน็ตสะดุด: ถือว่าเกมยังออนไลน์ 15 วิ หลังข้อมูลล่าสุด
+const gameOnline = () => Date.now() - game.lastSync < 15000;
+// คนที่หายจากข้อมูลแค่ชั่วครู่ (คำสั่งช้า/แพ็กเก็ตหาย) ยังนับว่าอยู่ในเกมต่อ 8 วิ — กันแอปเด้งเป็น "ไม่ได้เข้าเกม"
+const PRESENCE_GRACE = 8000;
+const seenAt = new Map(); // key -> { p, at }
 
 // ---------- แอปที่เชื่อมอยู่ ----------
 const clients = new Set();
@@ -161,7 +165,11 @@ function applyGame(body) {
   game.settings = { range: Number(st.range) || 0, micEnabled: st.micEnabled !== false, hearEnabled: st.hearEnabled !== false,
     stereo: st.stereo !== false, personal: st.personal !== false, falloff: Number(st.falloff) || 0 };
   for (const k of ["muted", "deaf", "mega", "self"]) game[k] = new Set((body[k] || []).map(key));
-  game.players = new Map((body.players || []).map((p) => [key(p.n), p]));
+  const tNow = Date.now();
+  for (const p of body.players || []) seenAt.set(key(p.n), { p, at: tNow });
+  const left = new Set((body.left || []).map(key)); // ออกจากเกมจริง (แอดออนบอกมา) → ลบทันที
+  for (const [k, v] of seenAt) if (left.has(k) || tNow - v.at > PRESENCE_GRACE) seenAt.delete(k);
+  game.players = new Map([...seenAt].map(([k, v]) => [k, v.p]));
   game.water = new Set((body.players || []).filter((p) => p.w).map((p) => key(p.n)).concat((body.water || []).map(key)));
   game.prange = new Map(Object.entries(body.prange || {}).map(([n, v]) => [key(n), Math.max(1, Math.min(100, Number(v) || 100))]));
   game.vfx = new Map(Object.entries(body.vfx || {}).map(([n, v]) => [key(n), Math.max(0, Math.min(12, Number(v) || 0))]));
@@ -249,14 +257,17 @@ mcWss.on("connection", (ws, req) => {
   const pending = new Map();
   let inflight = 0;
   // ส่งคำสั่งได้ค้างพร้อมกันไม่เกิน 60 (มายคราฟจำกัดไว้) ที่เกินให้ต่อคิว ไม่ทิ้ง
-  const waitq = [];
-  const cmd = (line) => (inflight >= 60 ? new Promise((r) => waitq.push(r)).then(() => cmd(line)) : rawCmd(line));
+  // คิว 2 ระดับ: ตำแหน่งผู้เล่น/ส่งข้อมูลเข้าเกม (สำคัญ) ได้คิวก่อนเสมอ ผนัง/ใต้น้ำ/ค่าตั้งไปทีหลัง
+  const hiq = [], waitq = [];
+  const next = () => { const n = hiq.shift() || waitq.shift(); if (n) n(); };
+  const cmd = (line, hi) => (inflight >= 60 ? new Promise((r) => (hi ? hiq : waitq).push(r)).then(() => cmd(line, hi)) : rawCmd(line));
+  const hcmd = (line) => cmd(line, true);
   const rawCmd = (line) => new Promise((resolve) => {
     if (ws.readyState !== 1) return resolve(null);
     const id = crypto.randomUUID();
     inflight++;
-    const t = setTimeout(() => { if (pending.delete(id)) { inflight--; resolve(null); const n = waitq.shift(); if (n) n(); } }, 4000);
-    pending.set(id, (body) => { clearTimeout(t); inflight--; resolve(body); const n = waitq.shift(); if (n) n(); });
+    const t = setTimeout(() => { if (pending.delete(id)) { inflight--; resolve(null); next(); } }, 4000);
+    pending.set(id, (body) => { clearTimeout(t); inflight--; resolve(body); next(); });
     ws.send(JSON.stringify({
       header: { version: 1, requestId: id, messagePurpose: "commandRequest", messageType: "commandRequest" },
       body: { version: 1, commandLine: line, origin: { type: "player" } },
@@ -279,8 +290,13 @@ mcWss.on("connection", (ws, req) => {
 
   // รายชื่อผู้เล่น + สถานะจากแอดออน (tag/scoreboard) ทุก 1 วินาที
   const slow = async () => {
-    const l = await cmd("list");
-    if (l && typeof l.players === "string") mcWorld.names = l.players.split(",").map((x) => x.trim()).filter(Boolean);
+    const l = await hcmd("list");
+    if (l && l.statusCode === 0 && typeof l.players === "string") {
+      const names = l.players.split(",").map((x) => x.trim()).filter(Boolean);
+      const nowK = new Set(names.map(key));
+      mcWorld.left = mcWorld.names.filter((n) => !nowK.has(key(n))); // ออกจริงตามรายชื่อเซิฟ
+      mcWorld.names = names;
+    }
     const FL = [["muted", "astra_muted"], ["deaf", "astra_deaf"], ["mega", "astra_mega"], ["self", "astra_self"]];
     const fr = await Promise.all(FL.map(([, tag]) => cmd(`testfor @a[tag=${tag}]`)));
     FL.forEach(([k], i) => { const r = fr[i]; mcWorld.flags[k] = r && r.statusCode === 0 && Array.isArray(r.victim) ? r.victim : []; });
@@ -328,6 +344,7 @@ mcWss.on("connection", (ws, req) => {
   };
   // ใต้น้ำ + ผนังกั้น + เปลี่ยนเสียง: วนเร็ว (0.3 วิ) และส่งคำสั่งพร้อมกันทั้งหมด ไม่รอทีละคำสั่ง
   const env = async () => {
+    if (waitq.length + hiq.length > 20) return; // คิวแน่น → ข้ามรอบนี้ ให้ตำแหน่งผู้เล่นไปก่อน
     const R = Math.min(range(), 48), ps = [...mcWorld.pos.values()], pairs = [];
     for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
       const a = ps[i], b = ps[j];
@@ -357,7 +374,7 @@ mcWss.on("connection", (ws, req) => {
   // ตำแหน่งผู้เล่นทุก 0.2 วินาที
   const fast = async () => {
     await Promise.all(mcWorld.names.map(async (n) => {
-      const r = await cmd(`querytarget @a[name=${q(n)}]`);
+      const r = await hcmd(`querytarget @a[name=${q(n)}]`);
       if (!r || r.statusCode !== 0) return;
       let arr; try { arr = typeof r.details === "string" ? JSON.parse(r.details) : r.details; } catch { return; }
       const t = Array.isArray(arr) && arr[0];
@@ -374,12 +391,14 @@ mcWss.on("connection", (ws, req) => {
       prange: mcWorld.prange || {},
       occ: mcWorld.occ,
       players: [...mcWorld.pos.values()],
+      left: mcWorld.left || [],
     });
+    mcWorld.left = [];
     // ส่งข้อมูลเข้าแอดออน (ถ้าไม่ได้ลงแอดออนก็ไม่มีผลอะไร)
     const out = { online: true, links: reply.links, linked: reply.linked, talking: reply.talking, justLinked: reply.justLinked, nearby: reply.nearby };
     let msg = JSON.stringify(out);
     if (msg.length > 1800) { delete out.nearby; msg = JSON.stringify(out); }
-    cmd("scriptevent astra:sync " + msg);
+    hcmd("scriptevent astra:sync " + msg);
   };
   let busyF = false, busyS = false;
   const tf = setInterval(() => { if (busyF) return; busyF = true; fast().finally(() => { busyF = false; }); }, 200);

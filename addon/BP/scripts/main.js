@@ -8,6 +8,9 @@ const DP_KEY = "mcvoice:state";
 const APP = "§dAstra Nova Voice§r";
 const TALK_SUFFIX = "\n§a((♪))";
 const MIC_GLYPH = "\uE100"; // ไอคอนไมค์ในป้ายชื่อ (RP font/glyph_E1.png)
+const MUTE_GLYPH = "\uE101"; // ไมค์ปิด
+const DEAF_GLYPH = "\uE102"; // ปิดหู
+const UI = (n) => "textures/astra_ui/" + n;
 const STYLES = ["ไอคอนลอยเหนือหัว", "ไอคอนข้างชื่อ", "ข้อความ ((♪)) ใต้ชื่อ", "ไม่แสดง"];
 
 // ไฟล์นี้คือแกนกลาง ใช้ร่วมกันทั้ง 2 แบบ:
@@ -98,6 +101,9 @@ const findPlayer = (name) => world.getAllPlayers().find((p) => key(p.name) === k
 const onoff = (b) => (b ? "§aเปิด" : "§cปิด");
 
 // ---------------- sync กับ voice server ----------------
+// คนที่ออกจากเกมจริง: บอกเซิฟเวอร์เสียงให้ลบทันที (ส่งซ้ำได้ 10 วิ เผื่อรอบไหนส่งไม่ถึง)
+const recentLeft = new Map();
+try { world.afterEvents.playerLeave.subscribe((e) => recentLeft.set(e.playerName, Date.now())); } catch { /* API เก่า */ }
 function buildPayload() {
   const players = [];
   for (const p of world.getAllPlayers()) {
@@ -119,6 +125,8 @@ function buildPayload() {
     prange: prangeNow(),
     occ: env.occ,
     announce: announceQueue,
+    left: [...recentLeft].filter(([n, t]) => Date.now() - t < 10000 || !recentLeft.delete(n)).map(([n]) => n)
+      .filter((n) => !players.some((x) => x.n === n)),
   };
 }
 
@@ -275,11 +283,15 @@ function updateNameTags() {
     try {
       const dec = decorated.get(k);
       if (dec !== undefined && p.nameTag !== dec) { origNameTag.set(k, p.nameTag); decorated.delete(k); } // ป้ายชื่อถูกเปลี่ยนจากที่อื่น
-      const want = S.showTalking && talkingSet.has(k) && (st === 1 || st === 2);
-      if (want) {
+      // รูปสถานะ: ปิดไมค์ / ปิดหู (โชว์ทุกแบบ ยกเว้น "ไม่แสดง")
+      const muted = S.self.has(k) || S.muted.has(k), deaf = S.selfDeaf.has(k) || S.deaf.has(k);
+      const stat = st === 3 ? "" : (muted ? " " + MUTE_GLYPH : "") + (deaf ? " " + DEAF_GLYPH : "");
+      const talk = S.showTalking && talkingSet.has(k) && (st === 1 || st === 2);
+      if (talk || stat) {
         if (!origNameTag.has(k)) origNameTag.set(k, p.nameTag);
         const base = origNameTag.get(k);
-        const d = st === 1 ? MIC_GLYPH + " " + base : base + TALK_SUFFIX;
+        let d = base + stat;
+        if (talk) d = st === 1 ? MIC_GLYPH + " " + d : d + TALK_SUFFIX;
         if (p.nameTag !== d) p.nameTag = d;
         decorated.set(k, d);
       } else if (decorated.has(k)) {
@@ -347,12 +359,12 @@ function openPlayerMenu(p) {
       `§rคนที่ได้ยินคุณ: ${near.length ? near.map((n) => `§a${n.n}§7(${n.d}ม.)`).join("§f, ") : "§7ไม่มี"}\n\n` +
       "§7วิธีใช้: เปิดแอป Astra Nova Voice > ใส่ชื่อ Xbox ของคุณ > ลิงก์อัตโนมัติ"
     )
-    .button(S.self.has(k) ? "§aเปิดไมค์" : "§cปิดไมค์", "textures/items/redstone_dust")
-    .button(S.selfDeaf.has(k) ? "§aเปิดหู §8(ตอนนี้ปิดหูอยู่)" : "§cปิดหูตัวเอง", "textures/items/wool_colored_red")
-    .button(`ระยะเสียงของฉัน: §e${S.prange.get(k) ? Math.min(S.prange.get(k), S.range) + " บล็อค" : "เต็ม (" + S.range + ")"}`, "textures/items/spyglass")
-    .button(`สัญลักษณ์ตอนพูด: §e${STYLES[styleOf(k)]}`, "textures/items/sign");
-  if (isAdmin(p)) f.button("§6แผงแอดมิน", "textures/items/gold_ingot");
-  f.button("ปิด");
+    .button(S.self.has(k) ? "§aเปิดไมค์ §8(ตอนนี้ปิดอยู่)" : "§cปิดไมค์", UI(S.self.has(k) ? "mic_off" : "mic_on"))
+    .button(S.selfDeaf.has(k) ? "§aเปิดหู §8(ตอนนี้ปิดหูอยู่)" : "§cปิดหูตัวเอง", UI(S.selfDeaf.has(k) ? "ear_off" : "ear_on"))
+    .button(`ระยะเสียงของฉัน: §e${S.prange.get(k) ? Math.min(S.prange.get(k), S.range) + " บล็อค" : "เต็ม (" + S.range + ")"}`, UI("range"))
+    .button(`สัญลักษณ์ตอนพูด: §e${STYLES[styleOf(k)]}`, UI("style"));
+  if (isAdmin(p)) f.button("§6แผงแอดมิน", UI("admin"));
+  f.button("ปิด", UI("close"));
   f.show(p).then((r) => {
     if (r.canceled) return;
     if (r.selection === 0) { lastToggle.delete(k); toggleSelfMic(p); }
@@ -435,15 +447,15 @@ function openAdmin(p) {
   new ActionFormData()
     .title("§l§dAstra Nova §6แผงควบคุมไมค์")
     .body(`สถานะ voice server: ${online ? "§aออนไลน์" : "§cออฟไลน์"}§r\nคนเชื่อมแอป: §b${linkedSet.size}§r / ${world.getAllPlayers().length}`)
-    .button(`ระยะไมค์: §e${S.range} บล็อค`, "textures/items/compass_item")
-    .button(`ไมค์ทั้งเซิฟ: ${onoff(S.micEnabled)}`, "textures/items/redstone_dust")
-    .button(`หูทั้งเซิฟ: ${onoff(S.hearEnabled)}`, "textures/items/record_cat")
-    .button("จัดการผู้เล่นรายคน", "textures/items/name_tag")
-    .button("§dประกาศ", "textures/items/book_writable")
-    .button(`สัญลักษณ์คนพูด: ${onoff(S.showTalking)}\n§8แบบเริ่มต้น: ${STYLES[S.defStyle]}`, "textures/items/sign")
-    .button("รับไอเท็มไมค์ / แจกทุกคน", "textures/items/iron_ingot")
-    .button(`§dเปลี่ยนเสียง §8(ของคุณ: ${VFX_NAMES[S.vfx.get(key(p.name)) || 0]})`, "textures/items/goat_horn")
-    .button(`§9กำแพงกั้นเสียง & เอฟเฟกต์\n§8ผนัง: ${S.occEnabled ? "§aเปิด" : "§cปิด"} §8• ใต้น้ำ: ${S.waterEnabled ? "§aเปิด" : "§cปิด"}`, "textures/blocks/stonebrick")
+    .button(`ระยะไมค์: §e${S.range} บล็อค`, UI("range"))
+    .button(`ไมค์ทั้งเซิฟ: ${onoff(S.micEnabled)}`, UI(S.micEnabled ? "mic_all" : "mic_off"))
+    .button(`หูทั้งเซิฟ: ${onoff(S.hearEnabled)}`, UI(S.hearEnabled ? "ear_all" : "ear_off"))
+    .button("จัดการผู้เล่นรายคน", UI("players"))
+    .button("§dประกาศ", UI("announce"))
+    .button(`สัญลักษณ์คนพูด: ${onoff(S.showTalking)}\n§8แบบเริ่มต้น: ${STYLES[S.defStyle]}`, UI("style"))
+    .button("รับไอเท็มไมค์ / แจกทุกคน", UI("items"))
+    .button(`§dเปลี่ยนเสียง §8(ของคุณ: ${VFX_NAMES[S.vfx.get(key(p.name)) || 0]})`, UI("vfx"))
+    .button(`§9กำแพงกั้นเสียง & เอฟเฟกต์\n§8ผนัง: ${S.occEnabled ? "§aเปิด" : "§cปิด"} §8• ใต้น้ำ: ${S.waterEnabled ? "§aเปิด" : "§cปิด"}`, UI("walls"))
     .show(p)
     .then((r) => {
       if (r.canceled) return;
@@ -527,10 +539,11 @@ function playerList(p) {
     const k = key(t.name);
     f.button(
       `${t.name} ${linkedSet.has(k) ? "§a●" : "§8●"}\n` +
-      `${S.muted.has(k) ? "§cไมค์ปิด" : "§aไมค์เปิด"} §8| ${S.deaf.has(k) ? "§cหูปิด" : "§aหูเปิด"}${S.mega.has(k) ? " §8| §dโทรโข่ง" : ""}`
+      `${S.muted.has(k) ? "§cไมค์ปิด" : "§aไมค์เปิด"} §8| ${S.deaf.has(k) ? "§cหูปิด" : "§aหูเปิด"}${S.mega.has(k) ? " §8| §dโทรโข่ง" : ""}`,
+      UI(S.deaf.has(k) ? "ear_off" : S.muted.has(k) ? "mic_off" : "mic_on")
     );
   }
-  f.button("« กลับ");
+  f.button("« กลับ", UI("back"));
   f.show(p).then((r) => {
     if (r.canceled) return;
     if (r.selection === list.length) return openAdmin(p);
@@ -589,9 +602,9 @@ function announce(msg, title = true, toApp = true, by = "แอดมิน") {
 function giveMenu(p) {
   new ActionFormData()
     .title("ไอเท็มไมค์")
-    .button("รับไอเท็มไมค์")
-    .button("รับแผงแอดมิน")
-    .button("แจกไอเท็มไมค์ให้ทุกคน")
+    .button("รับไอเท็มไมค์", UI("mic_on"))
+    .button("รับแผงแอดมิน", UI("admin"))
+    .button("แจกไอเท็มไมค์ให้ทุกคน", UI("items"))
     .show(p)
     .then((r) => {
       if (r.canceled) return;

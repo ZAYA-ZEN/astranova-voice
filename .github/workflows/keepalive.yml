@@ -4,7 +4,7 @@ name: Keep voice server awake
 # /wsserver gives up ("Connection closed") while it is waking. Ping it often.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:

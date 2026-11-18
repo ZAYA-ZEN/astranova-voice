@@ -443,7 +443,7 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
         giveItem(p, MIC_ITEM);
         p.setDynamicProperty("mcvoice:gotMic", true);
       }
-      if (!linkedSet.has(key(p.name))) p.sendMessage("§b[ไมค์] §fเซิฟนี้มีไมค์ตามระยะ! เปิดแอป " + APP + "§f กด §eคัดลอกคำสั่ง§f แล้ววางในแชท\n§7(หน้าตา: §f/astra:link 123456§7)\n§7ถือไอเท็มไมค์แล้วกด = เปิด/ปิดไมค์ • ย่อตัว+กด = เมนู • /astra:voice = เมนู");
+      if (!linkedSet.has(key(p.name))) p.sendMessage("§b[ไมค์] §fเซิฟนี้มีไมค์ตามระยะ! เปิดแอป " + APP + "§f ใส่ชื่อ Xbox §e" + p.name.replace(/§./g, "").replace(/\[[^\]]*\]/g, "").trim() + "§f แล้วพูดได้เลย\n§7(หรือใช้รหัสจากแอป: §f/astra:link รหัส§7)\n§7ถือไอเท็มไมค์แล้วกด = เปิด/ปิดไมค์ • ย่อตัว+กด = เมนู • /astra:voice = เมนู");
     } catch { /* ผู้เล่นออกไปแล้ว */ }
   }, 60);
 });

@@ -140,7 +140,7 @@
         <li>แอปจะเข้าหน้าไมค์เองอัตโนมัติ ครั้งต่อไปเปิดแอปก็เข้าได้เลย</li>
       </ol>
       <div class="hint" style="margin-top:6px">โลกธรรมดาที่เชื่อม /wsserver แล้ว พิมพ์แค่ตัวเลข 6 หลักในแชทก็ได้ • รหัสใช้ได้ 15 นาที</div>
-      <button class="link" id="btnBack">« กลับ</button>
+      <button class="link" id="btnBack">« กลับไปหน้าไมค์</button>
     </div>
     <details class="card host"><summary>🏠 ฉันเป็นเจ้าของโลก (โลกธรรมดา)</summary><div class="hostBody"></div></details>
   </section>
@@ -156,11 +156,22 @@
 
   <!-- 3) หน้าหลัก -->
   <section id="scrMain" class="hidden">
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <b id="meName">-</b><span class="hint" id="rangeTxt">ระยะ - บล็อค</span>
+    <div class="card glass" id="acct">
+      <div id="acctOut">
+        <b>🎮 เชื่อมกับเกม</b>
+        <label>ชื่อ Xbox (Gamertag)</label>
+        <div class="row"><input type="text" id="inName" placeholder="เช่น Steve1234" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="32"><button class="pri" id="btnLogin" style="flex:0 0 auto;width:auto;margin:0">เข้าสู่ระบบ</button></div>
+        <div class="hint" style="margin-top:6px">ใส่ชื่อครั้งเดียว แล้วเข้าเกมพูดได้เลย ไม่ต้องทำอะไรเพิ่ม</div>
+        <button class="link" id="btnUseCode">หรือเชื่อมด้วยรหัส (ไม่ต้องพิมพ์ชื่อ)</button>
       </div>
-      <div class="badges" id="badges"></div>
+      <div id="acctIn" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <b id="meName">-</b><span class="hint" id="rangeTxt"></span>
+        </div>
+        <div class="hint" id="acctState"></div>
+        <div class="badges" id="badges" style="margin-top:8px"></div>
+      </div>
+      <div class="hint" id="connTxt" style="margin-top:6px"></div>
     </div>
 
     <div class="card mic">
@@ -203,7 +214,7 @@
 
     <details class="card host"><summary>🏠 ฉันเป็นเจ้าของโลก (โลกธรรมดา)</summary><div class="hostBody"></div></details>
 
-    <div class="row"><button id="btnLogout">ออก</button><button id="btnUnlink">เปลี่ยนบัญชี</button></div>
+    <div class="row"><button id="btnUnlink">ออกจากระบบ / เปลี่ยนชื่อ</button></div>
   </section>
 </div>
 <script src="config.js"></script>

@@ -1,0 +1,86 @@
+{
+  "namespace": "hud",
+
+  "hud_title_text": {
+    "type": "panel",
+    "size": [ "100%", "100%" ],
+    "alpha": 1,
+    "propagate_alpha": false,
+    "controls": [
+      {
+        "astra_side": {
+          "type": "image",
+          "texture": "textures/ui/Black",
+          "alpha": 0.45,
+          "anchor_from": "right_middle",
+          "anchor_to": "right_middle",
+          "offset": [ -4, 0 ],
+          "size": [ "100%c + 10px", "100%c + 8px" ],
+          "layer": 20,
+          "bindings": [
+            { "binding_name": "#hud_title_text_string" },
+            { "binding_type": "view", "source_property_name": "(not ((#hud_title_text_string - 'astra:') = #hud_title_text_string))", "target_property_name": "#visible" }
+          ],
+          "controls": [
+            {
+              "astra_side_text": {
+                "type": "label",
+                "text": "#text",
+                "color": [ 1, 1, 1 ],
+                "shadow": true,
+                "text_alignment": "left",
+                "font_scale_factor": 1.0,
+                "localize": false,
+                "layer": 1,
+                "bindings": [
+                  { "binding_name": "#hud_title_text_string" },
+                  { "binding_type": "view", "source_property_name": "(#hud_title_text_string - 'astra:')", "target_property_name": "#text" }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "astra_normal_title": {
+          "type": "stack_panel",
+          "orientation": "vertical",
+          "anchor_from": "center",
+          "anchor_to": "center",
+          "offset": [ 0, -30 ],
+          "size": [ "100%", "100%c" ],
+          "bindings": [
+            { "binding_name": "#hud_title_text_string" },
+            { "binding_type": "view", "source_property_name": "((#hud_title_text_string - 'astra:') = #hud_title_text_string)", "target_property_name": "#visible" }
+          ],
+          "controls": [
+            {
+              "t": {
+                "type": "label",
+                "text": "#text",
+                "font_scale_factor": 2.5,
+                "shadow": true,
+                "text_alignment": "center",
+                "size": [ "100%", "default" ],
+                "localize": false,
+                "bindings": [ { "binding_name": "#hud_title_text_string", "binding_name_override": "#text" } ]
+              }
+            },
+            {
+              "s": {
+                "type": "label",
+                "text": "#text",
+                "font_scale_factor": 1.3,
+                "shadow": true,
+                "text_alignment": "center",
+                "size": [ "100%", "default" ],
+                "localize": false,
+                "bindings": [ { "binding_name": "#hud_subtitle_text_string", "binding_name_override": "#text" } ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

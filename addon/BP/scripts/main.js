@@ -11,7 +11,7 @@ const MIC_GLYPH = "\uE100"; // ไอคอนไมค์ในป้ายช�
 const MUTE_GLYPH = "\uE101"; // ไมค์ปิด
 const DEAF_GLYPH = "\uE102"; // ปิดหู
 const UI = (n) => "textures/astra_ui/" + n;
-const STYLES = ["ไอคอนลอยเหนือหัว", "ไอคอนข้างชื่อ", "ข้อความ ((♪)) ใต้ชื่อ", "ไม่แสดง"];
+const STYLES = ["ไอคอนลอยเหนือหัว", "ไอคอนข้างชื่อ", "ไอคอนใต้ชื่อ", "ไม่แสดง"];
 
 // ไฟล์นี้คือแกนกลาง ใช้ร่วมกันทั้ง 2 แบบ:
 //  - entry_server.js : เซิฟ BDS (เช่น mcsv) ส่งข้อมูลผ่าน @minecraft/server-net
@@ -40,7 +40,8 @@ const S = {
   self: new Set(), // ผู้เล่นปิดไมค์ตัวเองด้วยไอเท็ม
   vfx: new Map(), // เปลี่ยนเสียง (แอดมินเท่านั้น): ชื่อตัวเล็ก -> แบบเสียง
   prange: new Map(), // ระยะพูดที่ผู้เล่นตั้งเองในเกม: ชื่อตัวเล็ก -> บล็อค
-  style: new Map(), // สัญลักษณ์ตอนพูดที่ผู้เล่นเลือกเอง
+  style: new Map(), // แบบที่ผู้เล่นคนนั้น "เห็น" สัญลักษณ์ของทุกคน (เห็นแค่ตัวเอง)
+  side: new Map(), // แจ้งเตือนข้างจอ เปิด/ปิด (ค่าเริ่มต้น เปิด)
   selfDeaf: new Set(), // ปิดหูตัวเอง
   defStyle: 0, // สัญลักษณ์เริ่มต้นของเซิฟ
 };
@@ -69,7 +70,7 @@ function save() {
         muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
         vfx: Object.fromEntries(S.vfx),
         prange: Object.fromEntries(S.prange),
-        style: Object.fromEntries(S.style), selfDeaf: [...S.selfDeaf], defStyle: S.defStyle,
+        style: Object.fromEntries(S.style), side: Object.fromEntries(S.side), selfDeaf: [...S.selfDeaf], defStyle: S.defStyle,
       })
     );
   } catch (e) { console.warn("[MCVoice] save failed " + e); }
@@ -84,6 +85,7 @@ function load() {
     for (const k of ["occEnabled", "occThin", "occThick", "occBlock", "waterEnabled", "stereo", "personal", "falloff"]) if (typeof o[k] === typeof S[k]) S[k] = o[k];
     for (const k of ["muted", "deaf", "mega", "self"]) if (Array.isArray(o[k])) S[k] = new Set(o[k]);
     if (o.style && typeof o.style === "object") S.style = new Map(Object.entries(o.style).map(([k, v]) => [k, Number(v) || 0]));
+    if (o.side && typeof o.side === "object") S.side = new Map(Object.entries(o.side).map(([k, v]) => [k, !!v]));
     if (Array.isArray(o.selfDeaf)) S.selfDeaf = new Set(o.selfDeaf);
     if (typeof o.defStyle === "number") S.defStyle = o.defStyle; else if (o.showTalkTag) S.defStyle = 2;
     if (o.prange && typeof o.prange === "object") S.prange = new Map(Object.entries(o.prange).map(([k, v]) => [k, Number(v) || 0]));
@@ -262,6 +264,7 @@ function handleResponse(r) {
     const p = findPlayer(l.n);
     if (!p) continue;
     p.sendMessage(`§e[ไมค์] §fมีคำขอเชื่อมแอปไมค์กับชื่อ §b${p.name}\n§fรหัสยืนยันของคุณ: §a§l${l.code}§r\n§7พิมพ์รหัสนี้ในแอป (อย่าบอกใคร) ถ้าไม่ได้ขอเอง ให้เพิกเฉย`);
+    holdSide(p, 140);
     p.onScreenDisplay.setTitle(`§a${l.code}`, { subtitle: "§fรหัสยืนยันแอปไมค์", fadeInDuration: 5, stayDuration: 100, fadeOutDuration: 10 });
   }
   for (const n of r.justLinked ?? []) {
@@ -277,45 +280,99 @@ function handleResponse(r) {
 
 const decorated = new Map();
 const styleOf = (k) => (S.style.has(k) ? S.style.get(k) : S.defStyle);
+const sideOf = (k) => (S.side.has(k) ? S.side.get(k) : true);
+// เวอร์ชันก่อนเขียนรูปลงป้ายชื่อ (ทุกคนเห็นเหมือนกัน) — ตอนนี้ใช้พาร์ติเคิลที่เห็นเฉพาะคนดูแทน จึงแค่คืนป้ายชื่อเดิม
 function updateNameTags() {
+  if (!decorated.size) return;
   for (const p of world.getAllPlayers()) {
-    const k = key(p.name), st = styleOf(k);
-    try {
-      const dec = decorated.get(k);
-      if (dec !== undefined && p.nameTag !== dec) { origNameTag.set(k, p.nameTag); decorated.delete(k); } // ป้ายชื่อถูกเปลี่ยนจากที่อื่น
-      // รูปสถานะ: ปิดไมค์ / ปิดหู (โชว์ทุกแบบ ยกเว้น "ไม่แสดง")
-      const muted = S.self.has(k) || S.muted.has(k), deaf = S.selfDeaf.has(k) || S.deaf.has(k);
-      const stat = st === 3 ? "" : (muted ? " " + MUTE_GLYPH : "") + (deaf ? " " + DEAF_GLYPH : "");
-      const talk = S.showTalking && talkingSet.has(k) && (st === 1 || st === 2);
-      if (talk || stat) {
-        if (!origNameTag.has(k)) origNameTag.set(k, p.nameTag);
-        const base = origNameTag.get(k);
-        let d = base + stat;
-        if (talk) d = st === 1 ? MIC_GLYPH + " " + d : d + TALK_SUFFIX;
-        if (p.nameTag !== d) p.nameTag = d;
-        decorated.set(k, d);
-      } else if (decorated.has(k)) {
-        p.nameTag = origNameTag.get(k) ?? p.name;
-        decorated.delete(k); origNameTag.delete(k);
-      }
-    } catch { /* ignore */ }
+    const k = key(p.name);
+    if (!decorated.has(k)) continue;
+    try { if (p.nameTag === decorated.get(k)) p.nameTag = origNameTag.get(k) ?? p.name; } catch {}
+    decorated.delete(k); origNameTag.delete(k);
   }
 }
 
-// ---------------- ไอคอนกำลังพูดบนหัว ----------------
+// ส่งพาร์ติเคิลให้ผู้เล่นคนเดียวเห็น (ถ้าเวอร์ชันเกมไม่รองรับ ทุกคนจะเห็น)
+function spawnFor(viewer, id, at, vars) {
+  try {
+    if (typeof viewer.spawnParticle === "function") viewer.spawnParticle(id, at, vars);
+    else viewer.dimension.spawnParticle(id, at, vars);
+  } catch { /* chunk ยังไม่โหลด */ }
+}
+
+// ---------------- สัญลักษณ์ไมค์ (กำลังพูด / ปิดไมค์ / ปิดหู) ----------------
+// ผู้เล่นแต่ละคนเลือกเองว่าจะ "เห็น" สัญลักษณ์ของทุกคนในเซิฟแบบไหน — เห็นแค่ตัวเอง ไม่กระทบคนอื่น
 let talkFrame = 0;
-function drawTalkingIcons() {
-  if (!S.showTalking || talkingSet.size === 0) return;
-  talkFrame = (talkFrame + 0.5) % 4;
+function drawIndicators() {
+  if (!S.showTalking) return;
+  const ps = world.getAllPlayers();
+  const who = [];
+  for (const s of ps) {
+    const k = key(s.name);
+    const talk = talkingSet.has(k), mute = S.self.has(k) || S.muted.has(k), deaf = S.selfDeaf.has(k) || S.deaf.has(k);
+    if (!talk && !mute && !deaf) continue;
+    try { who.push({ s, h: s.getHeadLocation(), dim: s.dimension.id, sneak: s.isSneaking, len: s.name.length,
+      id: talk ? "astra:talking" : mute ? "astra:muted" : "astra:deafened" }); } catch {}
+  }
+  if (!who.length) return;
+  talkFrame = (talkFrame + 0.75) % 4;
   const vars = new MolangVariableMap();
   vars.setFloat("variable.frame", talkFrame);
-  for (const p of world.getAllPlayers()) {
-    if (!talkingSet.has(key(p.name)) || styleOf(key(p.name)) !== 0) continue;
+  for (const v of ps) {
+    const st = styleOf(key(v.name));
+    if (st === 3) continue;
+    let vl; try { vl = v.getHeadLocation(); } catch { continue; }
+    const vd = v.dimension.id;
+    for (const w of who) {
+      if (w.s.id === v.id || w.dim !== vd) continue;
+      const dx = w.h.x - vl.x, dz = w.h.z - vl.z, d = Math.hypot(dx, dz);
+      if (d > 48) continue;
+      const lift = w.sneak ? -0.2 : 0;
+      let at;
+      if (st === 0) at = { x: w.h.x, y: w.h.y + 0.95 + lift, z: w.h.z };        // เหนือป้ายชื่อ
+      else if (st === 2) at = { x: w.h.x, y: w.h.y + 0.32 + lift, z: w.h.z };   // ใต้ป้ายชื่อ
+      else {                                                                      // ข้างชื่อ (ด้านซ้ายตามมุมที่เรามอง)
+        const fx = d > 0.01 ? dx / d : 0, fz = d > 0.01 ? dz / d : 1, off = w.len * 0.075 + 0.3;
+        at = { x: w.h.x + fz * off, y: w.h.y + 0.58 + lift, z: w.h.z - fx * off };
+      }
+      spawnFor(v, w.id, at, vars);
+    }
+  }
+}
+
+// ---------------- แจ้งเตือนข้างจอ (เห็นแค่ตัวเอง) ----------------
+// ส่งเป็น title ที่ขึ้นต้นด้วย "astra:" — RP (ui/hud_screen.json) จะย้ายไปแสดงชิดขวากลางจอแทน title ปกติ
+const sideShown = new Map(), sideAt = new Map(), titleHold = new Map();
+function holdSide(p, ticks = 120) { titleHold.set(key(p.name), system.currentTick + ticks); sideShown.delete(key(p.name)); }
+function updateSide() {
+  const ps = world.getAllPlayers(), now = system.currentTick;
+  for (const v of ps) {
+    const k = key(v.name);
+    if ((titleHold.get(k) ?? 0) > now) continue;
+    let txt = "";
+    if (S.showTalking && sideOf(k)) {
+      const lines = [];
+      if (talkingSet.has(k)) lines.push("§a♪ §fคุณกำลังพูด");
+      const vl = v.location, vd = v.dimension.id;
+      for (const s of ps) {
+        const sk = key(s.name);
+        if (s.id === v.id || !talkingSet.has(sk) || s.dimension.id !== vd) continue;
+        const l = s.location, d = Math.hypot(l.x - vl.x, l.y - vl.y, l.z - vl.z);
+        if (d <= S.range) lines.push(`§a♪ §f${s.name} §7${Math.round(d)}ม.`);
+      }
+      if (S.self.has(k) || S.muted.has(k)) lines.push("§c● ไมค์คุณปิดอยู่");
+      if (S.selfDeaf.has(k) || S.deaf.has(k)) lines.push("§c● คุณปิดหูอยู่");
+      if (lines.length) txt = "§l§dAstra Voice§r\n" + lines.slice(0, 9).join("\n");
+    }
+    const last = sideShown.get(k) ?? "";
     try {
-      const h = p.getHeadLocation();
-      const y = p.isSneaking ? 0.75 : 0.95; // อยู่เหนือป้ายชื่อ
-      p.dimension.spawnParticle("astra:talking", { x: h.x, y: h.y + y, z: h.z }, vars);
-    } catch { /* chunk ยังไม่โหลด */ }
+      if (txt) {
+        if (txt !== last || now - (sideAt.get(k) ?? 0) > 60) {
+          v.onScreenDisplay.setTitle("astra:" + txt, { fadeInDuration: 0, stayDuration: 100, fadeOutDuration: 0 });
+          sideShown.set(k, txt); sideAt.set(k, now);
+        }
+      } else if (last) { v.onScreenDisplay.clearTitle(); sideShown.delete(k); }
+    } catch { /* ignore */ }
   }
 }
 
@@ -362,7 +419,7 @@ function openPlayerMenu(p) {
     .button(S.self.has(k) ? "§aเปิดไมค์ §8(ตอนนี้ปิดอยู่)" : "§cปิดไมค์", UI(S.self.has(k) ? "mic_off" : "mic_on"))
     .button(S.selfDeaf.has(k) ? "§aเปิดหู §8(ตอนนี้ปิดหูอยู่)" : "§cปิดหูตัวเอง", UI(S.selfDeaf.has(k) ? "ear_off" : "ear_on"))
     .button(`ระยะเสียงของฉัน: §e${S.prange.get(k) ? Math.min(S.prange.get(k), S.range) + " บล็อค" : "เต็ม (" + S.range + ")"}`, UI("range"))
-    .button(`สัญลักษณ์ตอนพูด: §e${STYLES[styleOf(k)]}`, UI("style"));
+    .button(`การแสดงสัญลักษณ์ไมค์: §e${STYLES[styleOf(k)]}\n§8แจ้งเตือนข้างจอ: ${sideOf(k) ? "§aเปิด" : "§cปิด"} §8(เห็นแค่คุณ)`, UI("style"));
   if (isAdmin(p)) f.button("§6แผงแอดมิน", UI("admin"));
   f.button("ปิด", UI("close"));
   f.show(p).then((r) => {
@@ -384,13 +441,17 @@ function toggleSelfDeaf(p) {
 function styleForm(p) {
   const k = key(p.name);
   new ModalFormData()
-    .title("สัญลักษณ์ตอนฉันพูด")
-    .dropdown(S.showTalking ? "คนอื่นจะเห็นสัญลักษณ์นี้ตอนคุณพูด" : "§cตอนนี้แอดมินปิดสัญลักษณ์คนพูดทั้งเซิฟอยู่", STYLES, { defaultValueIndex: styleOf(k) })
+    .title("การแสดงผลไมค์ (เห็นแค่คุณ)")
+    .dropdown((S.showTalking ? "" : "§cตอนนี้แอดมินปิดสัญลักษณ์ทั้งเซิฟอยู่\n§r") + "สัญลักษณ์ของทุกคนในเซิฟ (กำลังพูด / ปิดไมค์ / ปิดหู) จะแสดงแบบนี้บนจอของคุณ — คนอื่นไม่เห็นการตั้งค่านี้",
+      STYLES, { defaultValueIndex: styleOf(k) })
+    .toggle("แจ้งเตือนข้างจอ: ใครกำลังพูดใกล้ๆ คุณ", { defaultValue: sideOf(k) })
     .show(p)
     .then((r) => {
       if (r.canceled || !r.formValues) return;
-      S.style.set(k, Number(r.formValues[0]) || 0); save(); updateNameTags();
-      p.sendMessage(`§b[ไมค์] §fสัญลักษณ์ตอนพูด: §e${STYLES[styleOf(k)]}`);
+      S.style.set(k, Number(r.formValues[0]) || 0);
+      S.side.set(k, !!r.formValues[1]);
+      save(); updateSide();
+      p.sendMessage(`§b[ไมค์] §fสัญลักษณ์: §e${STYLES[styleOf(k)]}§f • ข้างจอ: ${onoff(sideOf(k))}`);
     });
 }
 
@@ -405,11 +466,10 @@ function drawRings() {
     try {
       const v = new MolangVariableMap();
       v.setFloat("variable.radius", ring.r);
-      v.setFloat("variable.count", Math.min(220, Math.ceil(2 * Math.PI * ring.r * 1.6)));
+      v.setFloat("variable.count", Math.min(320, Math.max(24, Math.ceil(2 * Math.PI * ring.r * 2.5))));
       const l = p.location;
-      const at = { x: l.x, y: l.y + 0.15, z: l.z };
-      if (typeof p.spawnParticle === "function") p.spawnParticle("astra:ring", at, v); // เห็นแค่ผู้เล่นคนนี้
-      else p.dimension.spawnParticle("astra:ring", at, v);
+      const at = { x: l.x, y: l.y + 0.4, z: l.z }; // แท่งสูง ~0.75 ตั้งจากพื้น
+      spawnFor(p, "astra:ring", at, v); // เห็นแค่ผู้เล่นคนนี้
     } catch { rings.delete(k); }
   }
 }
@@ -421,24 +481,39 @@ function prangeNow() {
   for (const p of world.getAllPlayers()) { const v = S.prange.get(key(p.name)); if (v) out[p.name] = v; }
   return out;
 }
-function setMyRange(p, n) {
+function setMyRange(p, n, quiet) {
   if (!S.personal) return p.sendMessage("§c[ไมค์] แอดมินปิดการตั้งระยะเสียงเองไว้");
   n = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
   const k = key(p.name);
   if (!n || n >= S.range) S.prange.delete(k); else S.prange.set(k, n);
   prVersion++; save(); mirrorState();
   showRing(p, Math.min(S.prange.get(k) || S.range, S.range));
-  p.sendMessage(S.prange.has(k) ? `§b[ไมค์] §fระยะเสียงของคุณ: §e${n} บล็อค§7 (คนที่ไกลกว่านี้จะไม่ได้ยินคุณ)` : `§b[ไมค์] §fใช้ระยะเต็มของเซิฟ §e${S.range} บล็อค`);
+  if (!quiet) p.sendMessage(S.prange.has(k) ? `§b[ไมค์] §fระยะเสียงของคุณ: §e${n} บล็อค§7 (คนที่ไกลกว่านี้จะไม่ได้ยินคุณ)` : `§b[ไมค์] §fใช้ระยะเต็มของเซิฟ §e${S.range} บล็อค`);
 }
+// กด -/+ แล้ววงสีเขียวรอบตัวขยับตามทันที (ฟอร์มมายคราฟส่งค่าสไลเดอร์ระหว่างเลื่อนไม่ได้ จึงใช้ปุ่มแทน)
 function myRangeForm(p) {
   if (!S.personal) return p.sendMessage("§c[ไมค์] แอดมินปิดการตั้งระยะเสียงเองไว้");
-  const cur = S.prange.get(key(p.name)) || S.range;
-  showRing(p, Math.min(cur, S.range), 30);
-  new ModalFormData()
+  const k = key(p.name), max = Math.max(1, S.range);
+  const cur = Math.min(S.prange.get(k) || max, max);
+  showRing(p, cur, 3600); // ค้างวงไว้ตลอดที่เปิดเมนูนี้
+  const bar = "§a" + "█".repeat(Math.round((cur / max) * 20)) + "§8" + "█".repeat(20 - Math.round((cur / max) * 20));
+  const steps = [-10, -5, -1, 1, 5, 10];
+  const f = new ActionFormData()
     .title("ระยะเสียงของฉัน")
-    .slider(`คนที่อยู่ไกลกว่านี้จะไม่ได้ยินคุณ\n§7(สูงสุดตามเซิฟ ${S.range} บล็อค — ตั้งต่ำๆ ไว้กระซิบ)`, 1, Math.max(1, S.range), { valueStep: 1, defaultValue: Math.min(cur, Math.max(1, S.range)) })
-    .show(p)
-    .then((r) => { if (!r.canceled && r.formValues) setMyRange(p, r.formValues[0]); });
+    .body(`§fระยะตอนนี้: §a§l${cur} บล็อค§r §7/ สูงสุด ${max}\n${bar}\n\n§7วงสีเขียวรอบตัวคือระยะที่คนอื่นได้ยินคุณ (เห็นแค่คุณ)`);
+  for (const d of steps) f.button(`${d > 0 ? "§a+" : "§c"}${d} บล็อค`, UI("range"));
+  f.button("§eระยะเต็มของเซิฟ", UI("range"));
+  f.button("§bพิมพ์ตัวเลขเอง", UI("style"));
+  f.button("§aเสร็จ", UI("close"));
+  f.show(p).then((r) => {
+    if (r.canceled || r.selection === steps.length + 3) { showRing(p, Math.min(S.prange.get(k) || S.range, S.range), 4); return; }
+    if (r.selection < steps.length) setMyRange(p, Math.max(1, Math.min(max, cur + steps[r.selection])), true);
+    else if (r.selection === steps.length) setMyRange(p, 0, true);
+    else return new ModalFormData().title("ระยะเสียงของฉัน")
+      .textField(`ใส่ตัวเลข 1 - ${max}`, String(cur), { defaultValue: String(cur) }).show(p)
+      .then((m) => { if (!m.canceled && m.formValues) setMyRange(p, Math.max(1, Math.min(max, Number(m.formValues[0]) || cur)), true); myRangeForm(p); });
+    myRangeForm(p);
+  });
 }
 
 // ---------------- แผงแอดมิน ----------------
@@ -594,6 +669,7 @@ function announce(msg, title = true, toApp = true, by = "แอดมิน") {
   world.sendMessage(`§6§l[ประกาศ]§r §f${msg}`);
   for (const pl of world.getAllPlayers()) {
     pl.playSound("note.pling", { pitch: 1.2 });
+    if (title) holdSide(pl, 110);
     if (title) pl.onScreenDisplay.setTitle("§6ประกาศ", { subtitle: "§f" + msg, fadeInDuration: 5, stayDuration: 80, fadeOutDuration: 10 });
   }
   if (toApp) announceQueue.push({ text: msg, by });
@@ -739,9 +815,10 @@ export function startCore(t) {
     load();
     mirrorState();
     transport.start(core);
-    system.runInterval(drawTalkingIcons, 2);
+    system.runInterval(drawIndicators, 3);
+    system.runInterval(updateSide, 10);
     system.runInterval(updateEnv, 5);
-    system.runInterval(drawRings, 4);
+    system.runInterval(drawRings, 3);
     console.warn(`[MCVoice] เริ่มทำงาน (${transport.mode}) ระยะ ${S.range}`);
   });
 }

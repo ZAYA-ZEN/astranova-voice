@@ -69,6 +69,29 @@
   ol.steps li { display:list-item; padding:3px 0; border:0; }
   #toast { position:fixed; left:12px; right:12px; top:calc(12px + env(safe-area-inset-top)); max-width:500px; margin:auto; background:#3b2a07; border:1px solid var(--warn); color:#ffe2a6; padding:12px 14px; border-radius:12px; z-index:9; box-shadow:0 8px 30px #0008; }
   #toast b { color:var(--warn); }
+
+  /* ---- v1.5 look ---- */
+  body::before { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background-image: radial-gradient(1px 1px at 20% 30%, #fff8, transparent), radial-gradient(1px 1px at 70% 20%, #fff6, transparent), radial-gradient(1.5px 1.5px at 40% 70%, #c9b8ff99, transparent), radial-gradient(1px 1px at 85% 60%, #fff5, transparent), radial-gradient(1px 1px at 10% 85%, #9fd0ff88, transparent), radial-gradient(1.5px 1.5px at 60% 45%, #fff6, transparent);
+    animation: twinkle 6s ease-in-out infinite alternate; }
+  @keyframes twinkle { from { opacity:.5 } to { opacity:1 } }
+  .hero { text-align:center; padding-top:18px; }
+  .brand { font-size:26px; font-weight:800; letter-spacing:4px; background:linear-gradient(90deg,#c7b5ff,#7fb2ff,#f3c9ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .brand span { font-weight:300; }
+  .tag { color:var(--mut); font-size:13px; margin:4px 0 18px; }
+  .logo { animation: glow 4s ease-in-out infinite alternate; }
+  .logo.mid { width:110px; }
+  @keyframes glow { from { box-shadow:0 0 40px #6d4dff44 } to { box-shadow:0 0 80px #6d4dff99 } }
+  .glass { background:linear-gradient(160deg,#171a3acc,#0c0e20cc); border:1px solid #3a3577; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); box-shadow:0 10px 40px #0006, inset 0 1px 0 #ffffff12; }
+  .card { border-radius:18px; }
+  button.pri.big { padding:16px; font-size:17px; border-radius:14px; box-shadow:0 8px 24px #5b5cff55; }
+  .codeBig { font-size:44px; font-weight:800; letter-spacing:6px; margin:6px 0 4px; background:linear-gradient(90deg,#fff,#c9b8ff); -webkit-background-clip:text; background-clip:text; color:transparent; font-variant-numeric:tabular-nums; }
+  .cmdline { display:inline-block; background:#0b0d1c; border:1px dashed #4a4590; border-radius:10px; padding:8px 12px; font-size:14px; color:#cfc6ff; user-select:all; -webkit-user-select:all; }
+  .feat { display:flex; gap:8px; margin-top:4px; }
+  .feat > div { flex:1; text-align:center; background:#0f1124aa; border:1px solid var(--line); border-radius:14px; padding:12px 6px; font-size:12px; color:var(--mut); }
+  .feat b { display:block; font-size:22px; margin-bottom:4px; }
+  .micbtn { background:radial-gradient(circle at 50% 35%, #1f5a43, #0f2a20); box-shadow:0 0 30px #3ddc8433; }
+  .micbtn.off { background:radial-gradient(circle at 50% 35%, #5a1f2a, #2a0f14); box-shadow:0 0 30px #ff5a7a33; }
 </style>
 </head>
 <body>
@@ -76,43 +99,58 @@
 <div class="wrap">
   <h1 id="topbar" class="hidden"><img src="logo.jpg" class="logo sm" alt=""> Astra Nova Voice <span class="dot" id="dot"></span></h1>
 
-  <!-- 1) เชื่อมต่อ -->
+  <!-- 1) เริ่มใช้งาน -->
   <section id="scrConnect">
-    <img src="logo.jpg" class="logo" alt="Astra Nova">
-    <div class="card">
+    <div class="hero">
+      <img src="logo.jpg" class="logo" alt="Astra Nova">
+      <div class="brand">ASTRA NOVA <span>VOICE</span></div>
+      <div class="tag">ไมค์ตามระยะสำหรับ Minecraft Bedrock</div>
+    </div>
+    <div class="card glass">
       <div id="serverBox">
-        <label>ที่อยู่เซิร์ฟเวอร์เสียง (ขอจากแอดมิน)</label>
+        <label>ที่อยู่เซิร์ฟเวอร์เสียง</label>
         <input type="text" id="inServer" placeholder="เช่น astranova-voice.onrender.com" autocapitalize="off" autocorrect="off" spellcheck="false">
       </div>
-      <label>ชื่อ Xbox (Gamertag) ในเกม</label>
-      <input type="text" id="inName" placeholder="เช่น Steve1234" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="32">
-      <button class="pri" id="btnConnect">เข้าใช้งาน</button>
+      <button class="pri big" id="btnConnect">เริ่มใช้งาน</button>
       <div class="err" id="errConnect"></div>
       <button class="link" id="btnShowServer">⚙ เปลี่ยนเซิร์ฟเวอร์</button>
     </div>
-    <p class="hint" style="text-align:center">ใส่ชื่อ Xbox ให้ตรงกับในเกม แล้วเข้าเกมได้เลย ระบบจะลิงก์ให้อัตโนมัติ<br>แนะนำให้ใส่หูฟังเพื่อไม่ให้เสียงสะท้อน</p>
+    <div class="feat">
+      <div><b>🔗</b><span>ไม่ต้องพิมพ์ชื่อ<br>วางรหัสในเกม</span></div>
+      <div><b>🧱</b><span>ผนังกั้นเสียง<br>ใต้น้ำเสียงอู้</span></div>
+      <div><b>📏</b><span>ปรับระยะพูด<br>ได้เองรายคน</span></div>
+    </div>
   </section>
 
-  <!-- รอเข้าเกม -->
+  <!-- 2) ลิงก์ด้วยรหัส -->
+  <section id="scrLink" class="hidden">
+    <img src="logo.jpg" class="logo mid" alt="">
+    <div class="card glass" style="text-align:center">
+      <div class="hint">รหัสเชื่อมของคุณ</div>
+      <div class="codeBig" id="codeBig">--- ---</div>
+      <code class="cmdline" id="codeCmd">/astra:link ------</code>
+      <button class="pri big" id="btnCopyCmd">📋 คัดลอกคำสั่ง</button>
+      <div class="row" style="margin-top:6px"><button class="link" id="btnCopyCode">คัดลอกเฉพาะรหัส</button><button class="link" id="btnNewCode">ขอรหัสใหม่</button></div>
+    </div>
+    <div class="card">
+      <b>วิธีเชื่อม</b>
+      <ol class="steps">
+        <li>เข้าโลก/เซิฟที่ลงแอดออน <b>Astra Nova Voice</b></li>
+        <li>เปิดแชท กด <b>วาง</b> แล้วส่ง (คำสั่ง <b>/astra:link</b> ตามด้วยรหัส)</li>
+        <li>แอปจะเข้าหน้าไมค์เองอัตโนมัติ ครั้งต่อไปเปิดแอปก็เข้าได้เลย</li>
+      </ol>
+      <div class="hint" style="margin-top:6px">โลกธรรมดาที่เชื่อม /wsserver แล้ว พิมพ์แค่ตัวเลข 6 หลักในแชทก็ได้ • รหัสใช้ได้ 15 นาที</div>
+      <button class="link" id="btnBack">« กลับ</button>
+    </div>
+    <details class="card host"><summary>🏠 ฉันเป็นเจ้าของโลก (โลกธรรมดา)</summary><div class="hostBody"></div></details>
+  </section>
+
+  <!-- รอเข้าเกม (แอปรุ่นเก่า) -->
   <section id="scrWait" class="hidden">
-    <img src="logo.jpg" class="logo" alt="">
     <div class="card" style="text-align:center">
       <b id="waitTitle">รอคุณเข้าเกม…</b>
       <p class="hint" id="waitHint"></p>
       <button class="link" id="btnWaitBack">« กลับ</button>
-    </div>
-    <details class="card host" open><summary>🏠 ฉันเป็นเจ้าของโลก (โลกธรรมดา)</summary><div class="hostBody"></div></details>
-  </section>
-
-  <!-- 2) ยืนยัน -->
-  <section id="scrVerify" class="hidden">
-    <div class="card">
-      <div class="hint" id="verifyHint">เข้าเกมแล้วดูรหัส 6 หลักที่เด้งขึ้นกลางจอ/ในแชท</div>
-      <label>รหัสยืนยัน</label>
-      <input type="text" id="inCode" class="code" inputmode="numeric" maxlength="6" placeholder="------">
-      <button class="pri" id="btnVerify">ยืนยัน</button>
-      <div class="err" id="errVerify"></div>
-      <div class="row"><button class="link" id="btnResend">ขอรหัสใหม่</button><button class="link" id="btnBack">เปลี่ยนชื่อ/เซิฟ</button></div>
     </div>
   </section>
 
@@ -131,6 +169,12 @@
       <div class="row" style="width:100%">
         <button class="tog" id="btnDeaf">🎧 ปิดหู</button>
       </div>
+    </div>
+
+    <div class="card">
+      <label style="margin-top:0">📏 ระยะเสียงของฉัน <span class="hint" id="myRangeTxt">-</span></label>
+      <input type="range" id="myRange" min="0" max="100" value="100">
+      <div class="hint">คนที่อยู่ไกลกว่านี้จะไม่ได้ยินคุณ (ตั้งได้ไม่เกินระยะที่แอดมินกำหนด) — เช่น ตั้ง 5 ไว้กระซิบ</div>
     </div>
 
     <div class="card">

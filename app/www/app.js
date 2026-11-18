@@ -27,12 +27,13 @@ let status = null;
 
 // ---------- helpers ----------
 function show(scr) {
-  for (const s of ["scrConnect", "scrVerify", "scrWait", "scrMain"]) $(s).classList.toggle("hidden", s !== scr);
+  for (const s of ["scrConnect", "scrLink", "scrWait", "scrMain"]) $(s).classList.toggle("hidden", s !== scr);
   $("topbar").classList.toggle("hidden", scr !== "scrMain");
 }
 function toast(html, ms = 6000) { const t = $("toast"); t.innerHTML = html; t.classList.remove("hidden"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.add("hidden"), ms); }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const tokenKey = () => "token:" + server.toLowerCase() + ":" + name.toLowerCase();
+const tokenKey = () => "tok2:" + server.toLowerCase();
+let myRange = store.get("myRange", null), maxRange = 100, pendingCode = "";
 const threshold = () => 0.002 + Math.pow((100 - sens) / 100, 2) * 0.08;
 
 function wsUrl(s) {
@@ -398,7 +399,7 @@ function connect() {
   let url;
   try { url = wsUrl(server); new URL(url); } catch { $("errConnect").textContent = "ที่อยู่เซิร์ฟเวอร์ไม่ถูกต้อง"; return; }
   $("errConnect").textContent = "กำลังเชื่อมต่อ…";
-  Promise.resolve(engine.connect(url, { t: "hello", name, token: store.get(tokenKey(), null) }))
+  Promise.resolve(engine.connect(url, { t: "hello", token: store.get(tokenKey(), null), range: myRange ?? undefined }))
     .catch((e) => { $("errConnect").textContent = "เชื่อมต่อไม่ได้: " + (e.message || e); });
 }
 
@@ -410,7 +411,7 @@ function wakeServer() {
 function handleClose() {
   $("dot").classList.remove("on");
   if (!wantConnected) return;
-  if (!linked && $("scrWait").classList.contains("hidden")) {
+  if (!linked && $("scrWait").classList.contains("hidden") && $("scrLink").classList.contains("hidden")) {
     if (Date.now() < wakeUntil) {
       const left = Math.ceil((wakeUntil - Date.now()) / 1000);
       $("errConnect").textContent = "กำลังปลุกเซิร์ฟเวอร์เสียง… (ครั้งแรกอาจใช้เวลาถึง 1 นาที เหลือ " + left + " วิ)";
@@ -433,18 +434,22 @@ function onMsg(m) {
         ? "เข้าเซิฟมายคราฟด้วยชื่อ Xbox <b>" + esc(name) + "</b> แล้วจะลิงก์ให้อัตโนมัติ<br>(ตัวพิมพ์เล็ก/ใหญ่ไม่มีผล)"
         : "โลกธรรมดา: ให้เจ้าของโลกพิมพ์คำสั่ง /wsserver ด้านล่างในเกม • เซิฟ BDS: ให้แอดมินตรวจแอดออน";
       break;
-    case "code_sent":
-      show("scrVerify");
-      $("verifyHint").innerHTML = m.online ? "ดูรหัส 6 หลักกลางจอ/ในแชทของ <b>" + esc(name) + "</b>" : "เข้าเกมด้วยชื่อ <b>" + esc(name) + "</b> แล้วรหัสจะเด้งขึ้นเอง";
-      $("inCode").value = "";
+    case "link_code":
+      pendingCode = m.code;
+      if (store.get(tokenKey(), null)) { engine.send({ t: "resume", token: store.get(tokenKey(), null) }); break; }
+      showCode();
       break;
-    case "verify_fail": $("errVerify").textContent = m.msg; break;
+    case "resume_fail": store.set(tokenKey(), null); showCode(); break;
     case "linked":
       linked = true;
       if (m.token) store.set(tokenKey(), m.token);
       store.set("auto", true);
       $("dot").classList.add("on");
+      name = m.name; store.set("name", name);
       $("meName").textContent = m.name;
+      if (m.maxRange != null) maxRange = m.maxRange;
+      renderMyRange();
+      if (myRange != null) engine.send({ t: "range", v: myRange });
       show("scrMain");
       Promise.resolve(engine.startAudio()).then(() => { pushOpts(); sendState(); loadDevices(); });
       break;
@@ -502,7 +507,8 @@ function renderBadges() {
 }
 function renderStatus() {
   const s = status;
-  $("rangeTxt").textContent = "ระยะ " + s.range + " บล็อค";
+  $("rangeTxt").textContent = "ระยะเซิฟ " + s.range + " บล็อค";
+  if (s.range !== maxRange) { maxRange = s.range; renderMyRange(); }
   renderBadges(); renderMic();
   const ul = $("nearby");
   if (!s.nearby.length) { ul.innerHTML = '<li class="hint">ไม่มีใครอยู่ในระยะ</li>'; return; }
@@ -520,7 +526,7 @@ function renderStatus() {
 // =====================================================================
 // ปุ่มต่างๆ
 // =====================================================================
-$("inServer").value = server; $("inName").value = name;
+$("inServer").value = server;
 $("sens").value = sens; $("boost").value = boost; $("vol").value = vol;
 $("boostTxt").textContent = boost + "%"; $("volTxt").textContent = vol + "%";
 $("serverBox").classList.toggle("hidden", !!server);
@@ -531,26 +537,36 @@ $("btnShowServer").onclick = () => { $("serverBox").classList.remove("hidden"); 
 function leave() { wantConnected = false; linked = false; status = null; engine.close(); engine.stopAudio(); show("scrConnect"); $("errConnect").textContent = ""; }
 
 $("btnConnect").onclick = () => {
-  server = SELF || $("inServer").value.trim(); name = $("inName").value.trim();
+  server = SELF || $("inServer").value.trim();
   $("errConnect").textContent = "";
   if (!server) { $("serverBox").classList.remove("hidden"); $("errConnect").textContent = "กรอกที่อยู่เซิร์ฟเวอร์เสียง"; return; }
-  if (!/^[A-Za-z0-9 _-]{1,32}$/.test(name)) { $("errConnect").textContent = "กรอกชื่อ Xbox ให้ถูกต้อง"; return; }
-  store.set("server", server); store.set("name", name); renderHost();
+  store.set("server", server); renderHost();
   wantConnected = true; linked = false;
   wakeUntil = Date.now() + 90000; wakeServer();
   if (!NATIVE) engine.startAudio(); // ปลดล็อกเสียงจากการแตะ (จำเป็นบนเบราว์เซอร์)
   connect();
 };
-$("btnVerify").onclick = () => { $("errVerify").textContent = ""; engine.send({ t: "verify", code: $("inCode").value.trim() }); };
-$("inCode").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/\D/g, ""); if (e.target.value.length === 6) $("btnVerify").click(); });
-$("btnResend").onclick = () => engine.send({ t: "resend" });
+function showCode() {
+  show("scrLink");
+  $("codeBig").textContent = pendingCode.replace(/(\d{3})(\d{3})/, "$1 $2");
+  $("codeCmd").textContent = "/astra:link " + pendingCode;
+}
+$("btnCopyCmd").onclick = (e) => copyText("/astra:link " + pendingCode, e.currentTarget);
+$("btnCopyCode").onclick = (e) => copyText(pendingCode, e.currentTarget);
+$("btnNewCode").onclick = () => engine.send({ t: "newcode" });
 $("btnBack").onclick = leave;
+function renderMyRange() {
+  const v = myRange == null ? maxRange : Math.min(myRange, maxRange);
+  $("myRange").max = Math.max(1, maxRange); $("myRange").value = v;
+  $("myRangeTxt").textContent = v + " / " + maxRange + " บล็อค";
+}
+$("myRange").oninput = (e) => { myRange = +e.target.value; store.set("myRange", myRange); renderMyRange(); engine.send({ t: "range", v: myRange }); };
 $("btnWaitBack").onclick = leave;
 $("btnLogout").onclick = () => { store.set("auto", false); leave(); };
 $("btnUnlink").onclick = () => {
-  if (!confirm("ออกและล้างชื่อที่จำไว้ในเครื่องนี้?")) return;
+  if (!confirm("ออกจากบัญชีนี้? ครั้งหน้าต้องใส่รหัสในเกมใหม่")) return;
   engine.send({ t: "unlink", token: store.get(tokenKey(), null) }); store.set(tokenKey(), null); store.set("auto", false);
-  name = ""; store.set("name", ""); $("inName").value = "";
+  name = ""; store.set("name", "");
   leave();
 };
 
@@ -664,7 +680,7 @@ function renderHost() {
     ${canBridge ? `<div class="hint">ถ้าพิมพ์แล้วเกมเชื่อมต่อไม่ได้ ให้ใช้ตัวเชื่อมในเครื่องนี้ (เกมต้องอยู่เครื่องเดียวกับแอปนี้)</div>
       ${bridgeOn ? `<div class="cmd"><code>${esc(local)}</code><button data-copy="${esc(local)}">คัดลอก</button></div><div class="hint">ตัวเชื่อมทำงานอยู่ — พิมพ์คำสั่งนี้ในเกมแทน</div>`
                  : `<button data-bridge style="width:100%;margin-top:8px">เปิดตัวเชื่อมในเครื่องนี้</button>`}` : ""}
-    <div class="hint" style="margin-top:8px">เชื่อมสำเร็จ เกมจะขึ้นข้อความ "เชื่อมระบบเสียงกับโลกนี้แล้ว" แล้วเพื่อนเปิดแอปใส่ชื่อ Xbox ได้เลย</div>`;
+    <div class="hint" style="margin-top:8px">เชื่อมสำเร็จ เกมจะขึ้นข้อความ "เชื่อมระบบเสียงกับโลกนี้แล้ว" แล้วทุกคนเปิดแอป กดคัดลอกรหัสไปวางในแชทเกมได้เลย</div>`;
   document.querySelectorAll(".hostBody").forEach((el) => {
     el.innerHTML = html;
     el.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = () => copyText(b.dataset.copy, b)));
@@ -683,4 +699,4 @@ async function startBridge() {
 
 renderMic();
 renderHost();
-if (server && name && store.get("auto", false)) { wantConnected = true; wakeUntil = Date.now() + 90000; wakeServer(); connect(); } // เข้าอัตโนมัติ
+if (server && store.get(tokenKey(), null) && store.get("auto", false)) { wantConnected = true; wakeUntil = Date.now() + 90000; wakeServer(); connect(); } // เข้าอัตโนมัติ

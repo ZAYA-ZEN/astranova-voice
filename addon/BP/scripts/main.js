@@ -1,4 +1,4 @@
-import { world, system, ItemStack, MolangVariableMap } from "@minecraft/server";
+import { world, system, ItemStack, MolangVariableMap, CommandPermissionLevel, CustomCommandParamType, CustomCommandStatus } from "@minecraft/server";
 import { ActionFormData, ModalFormData } from "@minecraft/server-ui";
 import { CONFIG } from "./config.js";
 
@@ -30,6 +30,8 @@ let busy = false;
 let online = false;
 let lastOkTick = 0;
 let linkedSet = new Set();
+// คำขอลิงก์จากคำสั่ง /astra:link รหัส : key(ชื่อ) -> { n, code, until }
+const claims = new Map();
 let talkingSet = new Set();
 let nearbyInfo = {};
 const lastToggle = new Map();
@@ -86,6 +88,7 @@ function buildPayload() {
     settings: { range: S.range, micEnabled: S.micEnabled, hearEnabled: S.hearEnabled },
     muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
     players,
+    claims: [...claims.values()].map((c) => [c.n, c.code]),
     occ: env.occ,
     announce: announceQueue,
   };
@@ -186,6 +189,7 @@ function handleResponse(r) {
     p.onScreenDisplay.setTitle(`§a${l.code}`, { subtitle: "§fรหัสยืนยันแอปไมค์", fadeInDuration: 5, stayDuration: 100, fadeOutDuration: 10 });
   }
   for (const n of r.justLinked ?? []) {
+    clearClaim(key(n));
     const p = findPlayer(n);
     if (p) { p.sendMessage("§a[ไมค์] เชื่อมแอปสำเร็จ! คุยกับคนรอบตัวได้แล้ว"); p.playSound("random.levelup"); }
   }
@@ -248,7 +252,7 @@ function toggleSelfMic(p) {
   p.playSound(on ? "random.orb" : "random.click", { pitch: on ? 1.4 : 0.7 });
   if (on && S.muted.has(k)) p.sendMessage("§c[ไมค์] คุณถูกแอดมินปิดไมค์อยู่");
   if (on && !S.micEnabled && !S.mega.has(k)) p.sendMessage("§c[ไมค์] ตอนนี้แอดมินปิดไมค์ทั้งเซิฟอยู่");
-  if (!linkedSet.has(k)) p.sendMessage("§e[ไมค์] คุณยังไม่ได้เปิดแอปไมค์ / ยังไม่ได้ยืนยันชื่อ");
+  if (!linkedSet.has(k)) p.sendMessage("§e[ไมค์] คุณยังไม่ได้เชื่อมแอปไมค์ — เปิดแอปแล้วพิมพ์ /astra:link รหัส");
 }
 
 function openPlayerMenu(p) {
@@ -439,9 +443,54 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
         giveItem(p, MIC_ITEM);
         p.setDynamicProperty("mcvoice:gotMic", true);
       }
-      p.sendMessage("§b[ไมค์] §fเซิฟนี้มีไมค์ตามระยะ! เปิดแอป " + APP + "§f แล้วใส่ชื่อ Xbox §e" + p.name.replace(/§./g, "").replace(/\[[^\]]*\]/g, "").trim() + "§f ก็ใช้ได้เลย\n§7ถือไอเท็มไมค์แล้วกด = เปิด/ปิดไมค์ • ย่อตัว+กด = เมนู");
+      if (!linkedSet.has(key(p.name))) p.sendMessage("§b[ไมค์] §fเซิฟนี้มีไมค์ตามระยะ! เปิดแอป " + APP + "§f กด §eคัดลอกคำสั่ง§f แล้ววางในแชท\n§7(หน้าตา: §f/astra:link 123456§7)\n§7ถือไอเท็มไมค์แล้วกด = เปิด/ปิดไมค์ • ย่อตัว+กด = เมนู • /astra:voice = เมนู");
     } catch { /* ผู้เล่นออกไปแล้ว */ }
   }, 60);
+});
+
+// ---------------- ลิงก์แอปด้วยรหัส ----------------
+function clearClaim(k) {
+  const c = claims.get(k);
+  if (!c) return;
+  claims.delete(k);
+  const p = findPlayer(c.n);
+  try { p?.removeTag("astra_lc_" + c.code); } catch {}
+}
+function claimLink(p, raw) {
+  const code = String(raw ?? "").replace(/\D/g, "");
+  if (code.length !== 6) { p.sendMessage("§c[ไมค์] รหัสต้องเป็นตัวเลข 6 หลัก (ดูในแอป " + APP + "§c)"); return; }
+  clearClaim(key(p.name));
+  claims.set(key(p.name), { n: p.name, code, until: system.currentTick + 20 * 120 });
+  try { p.addTag("astra_lc_" + code); } catch {}
+  p.sendMessage("§e[ไมค์] กำลังเชื่อมกับแอป…");
+}
+system.runInterval(() => {
+  for (const [k, c] of claims) if (system.currentTick > c.until) {
+    clearClaim(k);
+    findPlayer(c.n)?.sendMessage("§c[ไมค์] เชื่อมไม่สำเร็จ: รหัสไม่ถูกหรือหมดอายุ ลองกดรหัสใหม่ในแอป");
+  }
+}, 20);
+
+system.beforeEvents.startup.subscribe((ev) => {
+  const reg = ev.customCommandRegistry;
+  reg.registerCommand({
+    name: "astra:link", description: "เชื่อมแอปไมค์ Astra Nova Voice ด้วยรหัส 6 หลักจากแอป",
+    permissionLevel: CommandPermissionLevel.Any, cheatsRequired: false,
+    mandatoryParameters: [{ name: "code", type: CustomCommandParamType.String }],
+  }, (origin, code) => {
+    const p = origin.sourceEntity;
+    if (p?.typeId !== "minecraft:player") return { status: CustomCommandStatus.Failure, message: "ใช้ได้เฉพาะผู้เล่น" };
+    system.run(() => claimLink(p, code));
+    return { status: CustomCommandStatus.Success };
+  });
+  reg.registerCommand({
+    name: "astra:voice", description: "เปิดเมนูไมค์ Astra Nova Voice",
+    permissionLevel: CommandPermissionLevel.Any, cheatsRequired: false,
+  }, (origin) => {
+    const p = origin.sourceEntity;
+    if (p?.typeId === "minecraft:player") system.run(() => (isAdmin(p) ? openAdmin(p) : openPlayerMenu(p)));
+    return { status: CustomCommandStatus.Success };
+  });
 });
 
 // คำสั่งสำหรับคอนโซล/command block:
@@ -461,6 +510,7 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
     case "voice:deaf": S.deaf.add(key(msg)); save(); break;
     case "voice:undeaf": S.deaf.delete(key(msg)); save(); break;
     case "voice:give": if (src?.typeId === "minecraft:player") giveItem(src, MIC_ITEM); break;
+    case "astra:link": if (src?.typeId === "minecraft:player") claimLink(src, msg); break;
     case "voice:admin": if (src?.typeId === "minecraft:player") giveItem(src, ADMIN_ITEM); break;
   }
 });

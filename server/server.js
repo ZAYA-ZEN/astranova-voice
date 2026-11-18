@@ -44,6 +44,36 @@ const gameOnline = () => Date.now() - game.lastSync < 5000;
 const clients = new Set();
 let nextSlot = 0;
 const pendingCodes = new Map(); // key -> {code, expires, delivered, tries}
+const talkRanges = new Map(); // key -> ระยะพูดที่ผู้เล่นตั้งเองในแอป
+const linkCodes = new Map(); // รหัสลิงก์ 6 หลัก -> client ที่รออยู่
+// โทเคนจำเครื่อง: ชื่อ + ลายเซ็น (ไม่ต้องเก็บไฟล์ รีสตาร์ทแล้วยังใช้ได้)
+const TOKEN_SECRET = process.env.TOKEN_SECRET || process.env.RENDER_SERVICE_ID || cfg.secret || "astra-local";
+const b64u = (s) => Buffer.from(s, "utf8").toString("base64url");
+const signName = (n) => b64u(n) + "." + crypto.createHmac("sha256", TOKEN_SECRET).update("astra:" + n).digest("base64url").slice(0, 32);
+function nameFromToken(t) {
+  const [a, sig] = String(t || "").split(".");
+  if (!a || !sig) return null;
+  let n; try { n = Buffer.from(a, "base64url").toString("utf8"); } catch { return null; }
+  return signName(n) === t ? n : null;
+}
+function newLinkCode(c) {
+  if (c.linkCode) linkCodes.delete(c.linkCode);
+  let code;
+  do code = String(crypto.randomInt(100000, 1000000)); while (linkCodes.has(code));
+  c.linkCode = code; c.linkExpires = Date.now() + 15 * 60000;
+  linkCodes.set(code, c);
+  sendJSON(c, { t: "link_code", code, gameOnline: gameOnline(), minutes: 15 });
+}
+// ผู้เล่นพิมพ์ /astra:link รหัส (หรือพิมพ์รหัสในแชท) → ลิงก์แอปเข้ากับชื่อในเกม
+function claimCode(code, playerName) {
+  code = String(code || "").replace(/\D/g, "");
+  const c = linkCodes.get(code);
+  if (!c || c.linked || c.ws.readyState !== 1 || c.linkExpires < Date.now()) return false;
+  linkCodes.delete(code); c.linkCode = null;
+  c.name = cleanName(playerName); c.key = key(playerName);
+  finishLink(c, true);
+  return true;
+}
 const justLinked = new Set();
 
 function canSpeak(c) {
@@ -68,7 +98,7 @@ function mix(speakerKey, listenerKey) {
   if (!s || !l) return null;
   if (game.mega.has(speakerKey)) return { gain: 1, pan: 0, dist: 0, lp: 0 };
   if (s.d !== l.d) return null;
-  const R = range();
+  const R = Math.min(range(), talkRanges.has(speakerKey) ? talkRanges.get(speakerKey) : Infinity);
   if (R <= 0) return null;
   const dx = s.x - l.x, dy = s.y - l.y, dz = s.z - l.z;
   const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -131,6 +161,7 @@ function applyGame(body) {
   game.occ = new Map(Object.entries(body.occ || {}).map(([k, v]) => [k.split("|").map(key).sort().join("|"), Number(v) || 0]));
   for (const a of body.announce || []) broadcastJSON({ t: "announce", text: String(a.text).slice(0, 300), by: a.by });
 
+  for (const [n, code] of body.claims || []) claimCode(code, n);
   const links = [];
   for (const [k, p] of pendingCodes) {
     if (p.expires < Date.now()) { pendingCodes.delete(k); continue; }
@@ -224,8 +255,15 @@ mcWss.on("connection", (ws, req) => {
     let m; try { m = JSON.parse(data.toString()); } catch { return; }
     mcSeen = Date.now();
     const id = m.header && m.header.requestId;
-    if (id && pending.has(id)) { const f = pending.get(id); pending.delete(id); f(m.body || {}); }
+    if (id && pending.has(id)) { const f = pending.get(id); pending.delete(id); f(m.body || {}); return; }
+    // ผู้เล่นพิมพ์รหัส 6 หลักในแชท
+    if (m.header && m.header.eventName === "PlayerMessage" && m.body) {
+      const code = String(m.body.message || "").match(/\b(\d{6})\b/);
+      if (code && m.body.sender && claimCode(code[1], m.body.sender))
+        cmd(`tellraw ${q(m.body.sender)} {"rawtext":[{"text":"§a[ไมค์] เชื่อมแอปสำเร็จ!"}]}`);
+    }
   });
+  ws.send(JSON.stringify({ header: { version: 1, requestId: crypto.randomUUID(), messagePurpose: "subscribe", messageType: "commandRequest" }, body: { eventName: "PlayerMessage" } }));
   const q = (n) => '"' + String(n).replace(/"/g, "") + '"';
 
   // รายชื่อผู้เล่น + สถานะจากแอดออน (tag/scoreboard) ทุก 1 วินาที
@@ -239,6 +277,14 @@ mcWss.on("connection", (ws, req) => {
     // ใต้น้ำ (แอดออนติด tag ให้)
     const w = await cmd("testfor @a[tag=astra_water]");
     mcWorld.water = w && w.statusCode === 0 && Array.isArray(w.victim) ? w.victim : [];
+    // คำสั่ง /astra:link ในเกม → แอดออนติด tag astra_lc_รหัส
+    for (const code of [...linkCodes.keys()]) {
+      const r = await cmd(`testfor @a[tag=astra_lc_${code}]`);
+      if (r && r.statusCode === 0 && Array.isArray(r.victim) && r.victim[0]) {
+        const who = r.victim[0];
+        if (claimCode(code, who)) cmd(`tag ${q(who)} remove astra_lc_${code}`);
+      }
+    }
     // ผนังกั้นระหว่างคู่ผู้เล่น (แอดออนเขียนลง scoreboard astra_occ ชื่อ "a|b")
     const ps = [...mcWorld.pos.values()], occ = {}, R = range();
     for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
@@ -316,12 +362,11 @@ function finishLink(c, giveToken) {
   for (const o of clients) if (o !== c && o.key === c.key && o.linked) { sendJSON(o, { t: "kicked", reason: "มีการเชื่อมชื่อนี้จากอุปกรณ์อื่น" }); o.ws.close(); }
   let token;
   if (giveToken) {
-    token = crypto.randomBytes(24).toString("hex");
-    tokens[c.key] = [token, ...(tokens[c.key] || [])].slice(0, 5);
-    saveTokens();
+    token = signName(c.name);
     justLinked.add(c.name);
   }
-  sendJSON(c, { t: "linked", name: c.name, token, slot: c.slot });
+  sendJSON(c, { t: "linked", name: c.name, token, slot: c.slot, maxRange: range(), myRange: talkRanges.get(c.key) ?? null });
+  if (c.talkRange != null) talkRanges.set(c.key, c.talkRange);
 }
 
 wss.on("connection", (ws, req) => {
@@ -330,7 +375,28 @@ wss.on("connection", (ws, req) => {
   ws.on("message", (data, isBinary) => {
     if (isBinary) return onAudio(c, data);
     let m; try { m = JSON.parse(data.toString()); } catch { return; }
-    if (m.t === "hello") {
+    if (m.t === "hello" && !m.name) {
+      // แบบใหม่: ไม่ต้องใส่ชื่อ — ได้รหัสไปพิมพ์ในเกม หรือใช้โทเคนที่จำไว้
+      const caps = m.codecs || {};
+      c.encOpus = Array.isArray(caps.enc) && caps.enc.includes("opus");
+      c.decOpus = Array.isArray(caps.dec) && caps.dec.includes("opus");
+      if (typeof m.range === "number") c.talkRange = Math.max(0, Math.min(cfg.maxRange, m.range));
+      const tn = nameFromToken(m.token);
+      if (tn) { c.name = cleanName(tn); c.key = key(tn); return finishLink(c, false); }
+      return newLinkCode(c);
+    } else if (m.t === "resume" && !c.linked) {
+      // แอปที่เคยลิงก์แล้ว (โทเคนในเครื่อง) — ใช้ตอนเชื่อมใหม่
+      const tn = nameFromToken(m.token);
+      if (!tn) return sendJSON(c, { t: "resume_fail" });
+      if (c.linkCode) { linkCodes.delete(c.linkCode); c.linkCode = null; }
+      c.name = cleanName(tn); c.key = key(tn); finishLink(c, false);
+    } else if (m.t === "newcode" && !c.linked) {
+      newLinkCode(c);
+    } else if (m.t === "range") {
+      const v = Math.max(0, Math.min(cfg.maxRange, Number(m.v) || 0));
+      c.talkRange = v;
+      if (c.key) talkRanges.set(c.key, v);
+    } else if (m.t === "hello") {
       const name = String(m.name || "").trim().slice(0, 32);
       if (!/^[A-Za-z0-9 _-]{1,32}$/.test(name)) return sendJSON(c, { t: "error", msg: "ชื่อ Xbox ไม่ถูกต้อง" });
       c.name = cleanName(game.players.get(key(name))?.n || name);
@@ -340,7 +406,7 @@ wss.on("connection", (ws, req) => {
       c.encOpus = Array.isArray(caps.enc) && caps.enc.includes("opus");
       c.decOpus = Array.isArray(caps.dec) && caps.dec.includes("opus");
       c.legacy = !m.codecs; // แอปรุ่นเก่า (PCM ล้วน)
-      if (m.token && (tokens[c.key] || []).includes(m.token)) return finishLink(c, false);
+      if (m.token && ((tokens[c.key] || []).includes(m.token) || nameFromToken(m.token) && key(nameFromToken(m.token)) === c.key)) return finishLink(c, false);
       if (!cfg.requireCode) {
         // ลิงก์ด้วยชื่อ Xbox อย่างเดียว: ถ้าอยู่ในเกมแล้วลิงก์ทันที ถ้ายังไม่เข้าเกม รอจนกว่าจะเข้า
         if (game.players.has(c.key)) return finishLink(c, true);
@@ -365,7 +431,7 @@ wss.on("connection", (ws, req) => {
       ws.close();
     }
   });
-  ws.on("close", () => clients.delete(c));
+  ws.on("close", () => { clients.delete(c); if (c.linkCode) linkCodes.delete(c.linkCode); });
   ws.on("error", () => {});
 });
 

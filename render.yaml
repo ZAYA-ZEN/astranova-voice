@@ -9,5 +9,7 @@ services:
     startCommand: node server.js
     healthCheckPath: /healthz
     envVars:
+      - key: TOKEN_SECRET
+        generateValue: true
       - key: MAX_RANGE
         value: "100"

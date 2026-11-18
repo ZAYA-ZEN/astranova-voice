@@ -16,7 +16,9 @@ const VE = NATIVE ? CAP.registerPlugin("VoiceEngine") : null;
 // ---------- state ----------
 let wantConnected = false, linked = false;
 // เปิดเป็นเว็บจากลิงก์ Render → ใช้เซิร์ฟเวอร์เดียวกับหน้าเว็บเลย
-const SELF = !NATIVE && !window.mcvoiceNative && /^https?:$/.test(location.protocol) ? location.origin : "";
+const isLocal = (u) => /^(\w+:\/\/)?(localhost|127\.|\[::1\]|0\.0\.0\.0)/i.test(String(u || ""));
+const SELF = !NATIVE && !window.mcvoiceNative && /^https?:$/.test(location.protocol) && !isLocal(location.host) ? location.origin : "";
+if (isLocal(store.get("server", ""))) store.set("server", ""); // ค่าเสียจากเวอร์ชันก่อน
 let server = SELF || store.get("server", "") || CFG.serverUrl || "", name = store.get("name", "");
 let echoGate = store.get("echoGate", true);
 const IS_SAFARI = /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent) || /iP(hone|ad|od)/.test(navigator.userAgent);
@@ -61,7 +63,7 @@ function nativeEngine() {
       case "level": onLevel(ev.rms, ev.tx); break;
       case "codec": nativeCodec = ev.name; break;
       case "mute": muted = !!ev.muted; store.set("muted", muted); sendState(); renderMic(); break; // กดจากแจ้งเตือน
-      case "stopReq": wantConnected = false; linked = false; store.set("auto", false); show("scrConnect"); break;
+      case "stopReq": wantConnected = false; renderAcct(); break;
       case "error": toast("<b>เสียงมีปัญหา</b><br>" + esc(ev.message), 8000); break;
     }
   });

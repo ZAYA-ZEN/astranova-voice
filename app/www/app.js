@@ -450,13 +450,14 @@ function onMsg(m) {
     case "waiting": renderAcct(); break;
     case "link_code":
       pendingCode = m.code;
+      // กดขอรหัสเอง → โชว์รหัสนี้เลย ห้ามต่อใหม่ (ต่อใหม่ = รหัสนี้ใช้ไม่ได้ทันที)
+      if (wantCode || !$("scrLink").classList.contains("hidden")) { showCode(); break; }
       if (store.get(tokenKey(), null)) { engine.send({ t: "resume", token: store.get(tokenKey(), null) }); break; }
       if (name) { connect(); break; } // ใส่ชื่อไว้แล้ว → เชื่อมด้วยชื่อ
-      if (!$("scrLink").classList.contains("hidden")) showCode();
       break;
     case "resume_fail": store.set(tokenKey(), null); if (name) { connect(); } else renderAcct(); break;
     case "linked":
-      linked = true;
+      linked = true; wantCode = false;
       if (m.token) store.set(tokenKey(), m.token);
       store.set("auto", true);
       $("dot").classList.add("on");
@@ -571,9 +572,15 @@ function showCode() {
 }
 $("btnCopyCmd").onclick = (e) => copyText("/astra:link " + pendingCode, e.currentTarget);
 $("btnCopyCode").onclick = (e) => copyText(pendingCode, e.currentTarget);
-$("btnNewCode").onclick = () => engine.send({ t: "newcode" });
+$("btnNewCode").onclick = () => { wantCode = true; if (engine.isOpen()) engine.send({ t: "newcode" }); else connect(); };
 $("btnBack").onclick = () => show("scrMain");
-$("btnUseCode").onclick = () => { show("scrLink"); if (pendingCode) showCode(); else engine.send({ t: "newcode" }); };
+// เชื่อมด้วยรหัส: เลิกใช้ชื่อที่จำไว้ แล้วขอรหัสใหม่จากการเชื่อมต่อปัจจุบันเสมอ (รหัสเก่าอาจตายไปแล้ว)
+let wantCode = false;
+$("btnUseCode").onclick = () => {
+  wantCode = true; name = ""; store.set("name", "");
+  pendingCode = ""; show("scrLink"); $("codeBig").textContent = "…"; $("codeCmd").textContent = "กำลังขอรหัส…";
+  if (engine.isOpen()) engine.send({ t: "newcode" }); else { wantConnected = true; connect(); }
+};
 $("inName").value = name;
 $("btnLogin").onclick = () => {
   const n = $("inName").value.trim();

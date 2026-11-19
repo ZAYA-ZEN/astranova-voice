@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>ศูนย์ผู้ซื้อ — Astra Nova Voice HUB</title>
+<link rel="icon" href="/s/icon-192.png">
+<link rel="stylesheet" href="/s/style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="nav"><a href="/">🛒 กลับหน้าร้าน</a><a class="on" href="/my">🔑 ศูนย์ผู้ซื้อ</a><a href="#discord">💬 Discord</a></div>
+  <div class="hero">
+    <img src="/s/logo.jpg" alt="Astra Nova">
+    <div class="brand">ASTRA NOVA <span>VOICE HUB</span></div>
+    <div class="tag">ศูนย์ผู้ซื้อ — ดาวน์โหลดแอดออน วิธีติดตั้ง และแอปผู้เล่น</div>
+  </div>
+
+  <div class="card" id="askCard" style="display:none">
+    <h2>🔑 ใส่คีย์ของคุณ</h2><div class="mut">หน้านี้สำหรับคนที่ซื้อแล้วเท่านั้น คีย์ได้หลังชำระเงินที่หน้าร้าน</div>
+    <input type="text" id="inKey" placeholder="ANV-XXXX-XXXX-XXXX" autocapitalize="characters">
+    <button class="pri" id="btnKey">เปิดหน้าดาวน์โหลด</button>
+    <div class="msg" id="keyMsg"></div>
+    <div class="mut" style="margin-top:8px">ยังไม่มีคีย์? <a href="/">ซื้อได้ที่หน้าร้าน (69 บาท)</a> • คีย์หาย? ทักผู้ขายทาง Discord ด้านล่าง</div>
+  </div>
+
+  <div id="main" style="display:none">
+    <div class="legalBox"></div>
+
+    <div class="card">
+      <h2>🔑 คีย์ไลเซนส์ของคุณ</h2>
+      <div class="key" id="key"></div>
+      <div class="mut">คีย์นี้ฝังอยู่ในไฟล์แอดออนแล้ว ใช้ได้พร้อมกันสูงสุด 3 เซิฟ • <b>ห้ามแชร์ แจก หรือขายต่อ</b> คีย์ที่ถูกเผยแพร่จะถูกระงับ</div>
+    </div>
+
+    <div class="card">
+      <h2>🖥️ แบบที่ 1: เซิฟเช่า / BDS (เช่น mcsv)</h2>
+      <a class="pri" id="dlServer" href="#">ดาวน์โหลดแอดออนแบบเซิฟ (.mcaddon)</a>
+      <ol class="steps">
+        <li>ใส่แพ็กทั้ง 2 ตัว (BP + RP) ในโลกของเซิฟ แล้ว <b>เปิด Beta APIs</b> (Experiments)<br><span class="mut">ถ้าเซิฟไม่มีปุ่มนี้ ให้เปิดในโลกบนเครื่องตัวเองก่อนแล้วค่อยอัปโหลดโลกขึ้นเซิฟ</span></li>
+        <li>ในไฟล์เซิฟ แก้ <code>config/default/permissions.json</code> เป็นแบบนี้:</li>
+      </ol>
+      <div class="cmd"><code id="perms" style="white-space:pre;overflow-x:auto"></code><button class="sec" data-copy="perms">คัดลอก</button></div>
+      <ol class="steps" start="3">
+        <li>รีสตาร์ทเซิฟ — แอดมินจะเห็น <b>"เชื่อมต่อระบบเสียงสำเร็จ"</b></li>
+        <li>มีหลายเซิฟ? ลงไฟล์เดียวกันได้เลย ระบบแยกเซิฟให้เอง (ตั้งชื่อเซิฟได้ใน <code>scripts/config.js</code> ช่อง serverName)</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>🌍 แบบที่ 2: โลกธรรมดา (เล่นกับเพื่อน)</h2>
+      <a class="pri" id="dlWorld" href="#">ดาวน์โหลดแอดออนแบบโลกธรรมดา (.mcaddon)</a>
+      <ol class="steps">
+        <li>ใส่แพ็กในโลก • <b>เปิดสูตรโกง</b> • ตั้งค่า → ทั่วไป → <b>ปิด "Require Encrypted Websockets"</b></li>
+        <li>เจ้าของโลกเปิดแอป <b>Astra Nova Voice บน Windows หรือ Android เครื่องเดียวกับที่เล่นเกม</b> (ตั้งเซิร์ฟเวอร์เป็น <code class="hubHost"></code>)</li>
+        <li>ในแอปกด <b>ฉันเป็นเจ้าของโลก → เปิดตัวเชื่อมในเครื่องนี้</b></li>
+        <li>พิมพ์คำสั่งนี้ในแชทเกม <b>ทุกครั้งที่เปิดโลก</b> (เปิดแอปค้างไว้) — ไม่ต้องใส่คีย์ ระบบอ่านจากแพ็กเอง:</li>
+      </ol>
+      <div class="cmd"><code id="ws">/wsserver localhost:19140</code><button class="sec" data-copy="ws">คัดลอก</button></div>
+          <div class="mut">พิมพ์ /wsserver ไปที่ลิงก์เว็บโดยตรงใช้ไม่ได้ (เกมไม่รองรับการเชื่อมต่อแบบเข้ารหัส) จึงต้องผ่านตัวเชื่อมในแอป • เพื่อนในโลกใช้เว็บ/iPhone คุยได้ตามปกติ</div>
+    </div>
+
+    <div class="card">
+      <h2>📱 แอปสำหรับผู้เล่น (ทุกคนในเซิฟโหลดได้ฟรี)</h2>
+      <div class="grid2">
+        <a class="sec" id="appWeb" href="/app/" target="_blank">🌐 เว็บแอป (iPhone/ทุกเครื่อง)</a>
+        <a class="sec" id="appAnd" href="#" target="_blank">🤖 Android (.apk)</a>
+        <a class="sec" id="appWin" href="#" target="_blank">🪟 Windows (.exe)</a>
+        <a class="sec" id="appIos" href="#" target="_blank">🍎 iPhone (.ipa)</a>
+      </div>
+      <ol class="steps">
+        <li>เปิดแอป กด <b>⚙ เปลี่ยนเซิร์ฟเวอร์</b> แล้วใส่ <code id="hubHost"></code> (เว็บแอปไม่ต้องใส่)</li>
+        <li>กดเริ่มใช้งาน → ได้รหัส 6 หลัก → พิมพ์รหัสในแชทเกม (หรือ <code>/astra:link รหัส</code>) แค่ครั้งแรก</li>
+        <li>จากนั้นเข้าเซิฟไหนที่ลงแอดออนนี้ ก็พูดได้เลย ระบบหาเซิฟให้เอง</li>
+      </ol>
+    </div>
+  </div>
+  <div class="discordBox" id="discord"></div>
+  <footer></footer>
+</div>
+<script src="/s/legal.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const PERMS = JSON.stringify({ allowed_modules: ["@minecraft/server-gametest", "@minecraft/server", "@minecraft/server-ui", "@minecraft/server-admin", "@minecraft/server-editor", "@minecraft/server-net"] }, null, 2);
+document.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = () => {
+  const t = $(b.dataset.copy).textContent;
+  const done = () => { const o = b.textContent; b.textContent = "คัดลอกแล้ว"; setTimeout(() => (b.textContent = o), 1500); };
+  if (navigator.clipboard) navigator.clipboard.writeText(t).then(done, () => prompt("คัดลอก", t)); else prompt("คัดลอก", t);
+}));
+async function openKey(k) {
+  const j = await (await fetch("/api/check?key=" + encodeURIComponent(k))).json();
+  if (!j.valid) { $("askCard").style.display = ""; $("main").style.display = "none"; const m = $("keyMsg"); m.className = "msg bad"; m.textContent = "คีย์ไม่ถูกต้อง หรือถูกระงับ"; return; }
+  try { localStorage.setItem("anv:key", j.key); } catch {}
+  history.replaceState(null, "", "/my?key=" + encodeURIComponent(j.key));
+  const host = j.hub.replace(/^https?:\/\//, "");
+  $("askCard").style.display = "none"; $("main").style.display = "";
+  $("key").textContent = j.key;
+  $("dlServer").href = "/get/addon?type=server&key=" + encodeURIComponent(j.key);
+  $("dlWorld").href = "/get/addon?type=world&key=" + encodeURIComponent(j.key);
+  $("perms").textContent = PERMS;
+  $("hubHost").textContent = host; document.querySelectorAll(".hubHost").forEach((e) => (e.textContent = host));
+  $("appAnd").href = j.apps.android; $("appWin").href = j.apps.windows; $("appIos").href = j.apps.ios;
+}
+const k = new URLSearchParams(location.search).get("key") || (() => { try { return localStorage.getItem("anv:key"); } catch { return ""; } })();
+if (k) openKey(k); else $("askCard").style.display = "";
+$("btnKey").onclick = () => openKey($("inKey").value.trim());
+</script>
+</body>
+</html>

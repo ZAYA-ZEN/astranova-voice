@@ -1,0 +1,65 @@
+{
+  "name": "astranova-voice",
+  "productName": "Astra Nova Voice",
+  "version": "2.0.0",
+  "description": "Astra Nova Voice - proximity voice chat for Minecraft Bedrock",
+  "author": "Astra Nova",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:exe": "electron-builder --win nsis --x64",
+    "android:add": "cap add android && node scripts/patch-native.js android",
+    "ios:add": "cap add ios && node scripts/patch-native.js ios",
+    "sync": "cap sync"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "uiohook-napi": "^1.5.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "resedit": "^2.0.3"
+  },
+  "build": {
+    "appId": "com.astranova.voice",
+    "productName": "Astra Nova Voice",
+    "files": [
+      "electron/**",
+      "www/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "afterPack": "scripts/after-pack.js",
+    "npmRebuild": false,
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "shortcutName": "Astra Nova Voice",
+      "artifactName": "AstraNovaVoice-Setup-${version}.exe"
+    },
+    "compression": "maximum"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

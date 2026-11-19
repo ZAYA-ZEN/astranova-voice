@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: astranova-hub
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node hub.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: LICENSE_SECRET      # ห้ามเปลี่ยน/ลบ ไม่งั้นคีย์ที่ขายไปใช้ไม่ได้ (จดเก็บไว้)
+        generateValue: true
+      - key: TOKEN_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD      # รหัสเข้า /admin
+        generateValue: true
+      - key: EASYSLIP_API_KEY    # ใส่เมื่อสมัคร easyslip.com (ไม่ใส่ = ตรวจสลิปเองที่ /admin)
+        sync: false
+      - key: DISCORD_WEBHOOK     # แจ้งเตือนเมื่อมีคนซื้อ/ส่งสลิป (ไม่บังคับ)
+        sync: false
+      - key: PRICE
+        value: "69"
+      - key: RECEIVER_NAMES
+        value: "พีรพัฒน์,PEERAPAT,PHASANE,พาเสน่ห์"
+      - key: RECEIVER_PHONE_LAST4
+        value: "9203"
+      - key: MAX_SERVERS_PER_KEY
+        value: "3"

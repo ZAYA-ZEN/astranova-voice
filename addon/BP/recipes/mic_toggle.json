@@ -1,0 +1,11 @@
+{
+  "format_version": "1.21.60",
+  "minecraft:recipe_shaped": {
+    "description": { "identifier": "voice:mic_toggle_recipe" },
+    "tags": ["crafting_table"],
+    "pattern": [" I ", " R ", " S "],
+    "key": { "I": "minecraft:iron_ingot", "R": "minecraft:redstone", "S": "minecraft:stick" },
+    "unlock": [{ "item": "minecraft:redstone" }],
+    "result": { "item": "voice:mic_toggle", "count": 1 }
+  }
+}

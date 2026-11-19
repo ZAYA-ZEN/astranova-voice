@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#05060f">
+<title>Astra Nova Voice</title>
+<link rel="icon" href="logo.jpg">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Astra Voice">
+<style>
+  :root { --bg:#05060f; --card:#0f1124; --line:#262a4d; --txt:#eceaff; --mut:#9a98c3; --ok:#3ddc84; --bad:#ff5a7a; --acc:#9d7bff; --warn:#ffc96b; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html { background:#05060f; }
+  html,body { margin:0; min-height:100%; background:radial-gradient(1200px 600px at 50% -10%, #1d1546 0%, #05060f 60%) fixed; color:var(--txt); font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", Tahoma, sans-serif; }
+  body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  .wrap { max-width:520px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:4px 0 14px; display:flex; align-items:center; gap:8px; }
+  h1 .dot { width:10px; height:10px; border-radius:50%; background:var(--bad); }
+  h1 .dot.on { background:var(--ok); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  label { display:block; font-size:13px; color:var(--mut); margin:10px 0 6px; }
+  input[type=text], input[type=number] { width:100%; padding:12px; font-size:16px; border-radius:10px; border:1px solid var(--line); background:#0d1117; color:var(--txt); }
+  .code { letter-spacing:8px; text-align:center; font-size:28px !important; font-weight:700; }
+  button { font: inherit; border:0; border-radius:10px; padding:12px 14px; background:var(--line); color:var(--txt); cursor:pointer; }
+  button.pri { background:linear-gradient(90deg,#7b5cff,#4f8dff); color:#fff; font-weight:700; width:100%; margin-top:14px; }
+  button.link { background:none; color:var(--acc); padding:8px 0; }
+  .hidden { display:none !important; }
+  .err { color:var(--bad); font-size:14px; min-height:18px; margin-top:8px; }
+  .hint { color:var(--mut); font-size:13px; line-height:1.5; }
+  .badges { display:flex; flex-wrap:wrap; gap:6px; }
+  .b { font-size:12px; padding:4px 8px; border-radius:20px; background:#0d1117; border:1px solid var(--line); }
+  .b.ok { color:var(--ok); border-color:#1e5c3a; } .b.bad { color:var(--bad); border-color:#6b2427; } .b.warn { color:var(--warn); border-color:#6b5420; }
+  .mic { display:flex; flex-direction:column; align-items:center; gap:10px; padding:10px 0; }
+  .logo { display:block; width:min(62vw,240px); aspect-ratio:1; margin:6px auto 14px; border-radius:50%; box-shadow:0 0 60px #6d4dff55; }
+  .logo.sm { width:36px; height:36px; margin:0; box-shadow:0 0 14px #6d4dff88; }
+  .micbtn { width:150px; height:150px; border-radius:50%; font-size:56px; background:#16352a; border:4px solid var(--ok); color:var(--ok); transition:transform .08s, box-shadow .1s; user-select:none; -webkit-user-select:none; touch-action:none; }
+  .micbtn.off { background:#3a1719; border-color:var(--bad); color:var(--bad); }
+  .micbtn.tx { box-shadow:0 0 0 10px rgba(61,220,132,.25); transform:scale(1.03); }
+  .row { display:flex; gap:8px; } .row > * { flex:1; }
+  .tog.on { background:#3a1719; color:var(--bad); }
+  .meter { height:8px; background:#0d1117; border-radius:6px; overflow:hidden; position:relative; }
+  .meter > i { position:absolute; inset:0 auto 0 0; width:0; background:var(--ok); transition:width .05s; }
+  .meter > b { position:absolute; top:-2px; bottom:-2px; width:2px; background:var(--warn); }
+  input[type=range] { width:100%; }
+  select { width:100%; padding:10px; font-size:15px; border-radius:10px; border:1px solid var(--line); background:#0d1117; color:var(--txt); }
+  li[data-n] { cursor:pointer; }
+  li.pv { display:block; padding:4px 0 12px; }
+  li.pv label { margin:0 0 4px; }
+  .seg { display:flex; background:#0d1117; border-radius:10px; padding:3px; }
+  .seg button { flex:1; background:none; padding:9px; font-size:14px; }
+  .seg button.sel { background:var(--line); }
+  ul { list-style:none; margin:0; padding:0; }
+  li { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); }
+  li:last-child { border:0; }
+  li .nm { flex:1; } li .d { color:var(--mut); font-size:13px; width:60px; text-align:right; }
+  li .vb { width:70px; height:6px; background:#0d1117; border-radius:4px; overflow:hidden; } li .vb i { display:block; height:100%; background:var(--acc); }
+  li .tk { width:10px; height:10px; border-radius:50%; background:transparent; } li .tk.on { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  details.host summary { cursor:pointer; font-weight:600; list-style:none; }
+  details.host summary::-webkit-details-marker { display:none; }
+  .cmd { display:flex; gap:6px; margin:8px 0; }
+  .cmd code { flex:1; background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:10px; font-size:13px; word-break:break-all; user-select:all; -webkit-user-select:all; }
+  .cmd button { padding:8px 12px; }
+  ol.steps { margin:6px 0 0; padding-left:20px; color:var(--mut); font-size:13px; line-height:1.6; }
+  ol.steps li { display:list-item; padding:3px 0; border:0; }
+  #toast { position:fixed; left:12px; right:12px; top:calc(12px + env(safe-area-inset-top)); max-width:500px; margin:auto; background:#3b2a07; border:1px solid var(--warn); color:#ffe2a6; padding:12px 14px; border-radius:12px; z-index:9; box-shadow:0 8px 30px #0008; }
+  #toast b { color:var(--warn); }
+
+  /* ---- v1.5 look ---- */
+  body::before { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background-image: radial-gradient(1px 1px at 20% 30%, #fff8, transparent), radial-gradient(1px 1px at 70% 20%, #fff6, transparent), radial-gradient(1.5px 1.5px at 40% 70%, #c9b8ff99, transparent), radial-gradient(1px 1px at 85% 60%, #fff5, transparent), radial-gradient(1px 1px at 10% 85%, #9fd0ff88, transparent), radial-gradient(1.5px 1.5px at 60% 45%, #fff6, transparent);
+    opacity: .8; }
+  @keyframes twinkle { from { opacity:.5 } to { opacity:1 } }
+  .hero { text-align:center; padding-top:18px; }
+  .brand { font-size:26px; font-weight:800; letter-spacing:4px; background:linear-gradient(90deg,#c7b5ff,#7fb2ff,#f3c9ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .brand span { font-weight:300; }
+  .tag { color:var(--mut); font-size:13px; margin:4px 0 18px; }
+  .logo { box-shadow: 0 0 60px #6d4dff77; }
+  .logo.mid { width:110px; }
+  @keyframes glow { from { box-shadow:0 0 40px #6d4dff44 } to { box-shadow:0 0 80px #6d4dff99 } }
+  .glass { background:linear-gradient(160deg,#171a3acc,#0c0e20cc); border:1px solid #3a3577; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); box-shadow:0 10px 40px #0006, inset 0 1px 0 #ffffff12; }
+  .card { border-radius:18px; }
+  button.pri.big { padding:16px; font-size:17px; border-radius:14px; box-shadow:0 8px 24px #5b5cff55; }
+  .codeBig { font-size:44px; font-weight:800; letter-spacing:6px; margin:6px 0 4px; background:linear-gradient(90deg,#fff,#c9b8ff); -webkit-background-clip:text; background-clip:text; color:transparent; font-variant-numeric:tabular-nums; }
+  .cmdline { display:inline-block; background:#0b0d1c; border:1px dashed #4a4590; border-radius:10px; padding:8px 12px; font-size:14px; color:#cfc6ff; user-select:all; -webkit-user-select:all; }
+  .feat { display:flex; gap:8px; margin-top:4px; }
+  .feat > div { flex:1; text-align:center; background:#0f1124aa; border:1px solid var(--line); border-radius:14px; padding:12px 6px; font-size:12px; color:var(--mut); }
+  .feat b { display:block; font-size:22px; margin-bottom:4px; }
+  .micbtn { background:radial-gradient(circle at 50% 35%, #1f5a43, #0f2a20); box-shadow:0 0 30px #3ddc8433; }
+  .micbtn.off { background:radial-gradient(circle at 50% 35%, #5a1f2a, #2a0f14); box-shadow:0 0 30px #ff5a7a33; }
+  .hkrow { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .hkrow span { flex:1; font-size:14px; }
+  .hkrow kbd { white-space:nowrap; min-width:70px; text-align:center; padding:6px 10px; border-radius:8px; background:#0b0d1c; border:1px solid #4a4590; color:#e9d5ff; font:600 13px ui-monospace,Menlo,monospace; }
+  .hkrow kbd.rec { border-color:#f0abfc; color:#f0abfc; animation:hkblink 1s infinite; }
+  @keyframes hkblink { 50% { opacity:.4; } }
+  .hkrow button { width:auto; margin:0; padding:6px 10px; font-size:13px; white-space:nowrap; flex:0 0 auto; }
+  .hkrow .hkclr { padding:6px 9px; opacity:.7; }
+</style>
+</head>
+<body>
+<div id="toast" class="hidden"></div>
+<div class="wrap">
+  <h1 id="topbar" class="hidden"><img src="logo.jpg" class="logo sm" alt=""> Astra Nova Voice <span class="dot" id="dot"></span></h1>
+
+  <!-- 1) เริ่มใช้งาน -->
+  <section id="scrConnect">
+    <div class="hero">
+      <img src="logo.jpg" class="logo" alt="Astra Nova">
+      <div class="brand">ASTRA NOVA <span>VOICE</span></div>
+      <div class="tag">ไมค์ตามระยะสำหรับ Minecraft Bedrock</div>
+    </div>
+    <div class="card glass">
+      <div id="serverBox">
+        <label>ที่อยู่เซิร์ฟเวอร์เสียง</label>
+        <input type="text" id="inServer" placeholder="เช่น astranova-voice.onrender.com" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <button class="pri big" id="btnConnect">เริ่มใช้งาน</button>
+      <div class="err" id="errConnect"></div>
+      <button class="link" id="btnShowServer">⚙ เปลี่ยนเซิร์ฟเวอร์</button>
+    </div>
+    <div class="feat">
+      <div><b>🔗</b><span>ไม่ต้องพิมพ์ชื่อ<br>วางรหัสในเกม</span></div>
+      <div><b>🧱</b><span>ผนังกั้นเสียง<br>ใต้น้ำเสียงอู้</span></div>
+      <div><b>📏</b><span>ปรับระยะพูด<br>ได้เองรายคน</span></div>
+    </div>
+  </section>
+
+  <!-- 2) ลิงก์ด้วยรหัส -->
+  <section id="scrLink" class="hidden">
+    <img src="logo.jpg" class="logo mid" alt="">
+    <div class="card glass" style="text-align:center">
+      <div class="hint">รหัสเชื่อมของคุณ</div>
+      <div class="codeBig" id="codeBig">--- ---</div>
+      <code class="cmdline" id="codeCmd">/astra:link ------</code>
+      <button class="pri big" id="btnCopyCmd">📋 คัดลอกคำสั่ง</button>
+      <div class="row" style="margin-top:6px"><button class="link" id="btnCopyCode">คัดลอกเฉพาะรหัส</button><button class="link" id="btnNewCode">ขอรหัสใหม่</button></div>
+    </div>
+    <div class="card">
+      <b>วิธีเชื่อม</b>
+      <ol class="steps">
+        <li>เข้าโลก/เซิฟที่ลงแอดออน <b>Astra Nova Voice</b></li>
+        <li>เปิดแชท กด <b>วาง</b> แล้วส่ง (คำสั่ง <b>/astra:link</b> ตามด้วยรหัส)</li>
+        <li>แอปจะเข้าหน้าไมค์เองอัตโนมัติ ครั้งต่อไปเปิดแอปก็เข้าได้เลย</li>
+      </ol>
+      <div class="hint" style="margin-top:6px">โลกธรรมดาที่เชื่อม /wsserver แล้ว พิมพ์แค่ตัวเลข 6 หลักในแชทก็ได้ • รหัสใช้ได้ 15 นาที</div>
+      <button class="link" id="btnBack">« กลับไปหน้าไมค์</button>
+    </div>
+    <details class="card host"><summary>🏠 ฉันเป็นเจ้าของโลก (โลกธรรมดา)</summary><div class="hostBody"></div></details>
+    <details class="card host"><summary>🖥️ ฉันเป็นเจ้าของเซิร์ฟเวอร์ (mcsv / BDS)</summary><div class="srvBody"></div></details>
+  </section>
+
+  <!-- รอเข้าเกม (แอปรุ่นเก่า) -->
+  <section id="scrWait" class="hidden">
+    <div class="card" style="text-align:center">
+      <b id="waitTitle">รอคุณเข้าเกม…</b>
+      <p class="hint" id="waitHint"></p>
+      <button class="link" id="btnWaitBack">« กลับ</button>
+    </div>
+  </section>
+
+  <!-- 3) หน้าหลัก -->
+  <section id="scrMain" class="hidden">
+    <div class="card glass" id="acct">
+      <div id="acctOut">
+        <b>🎮 เชื่อมกับเกม</b>
+        <label>ชื่อ Xbox (Gamertag)</label>
+        <div class="row"><input type="text" id="inName" placeholder="เช่น Steve1234" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="32"><button class="pri" id="btnLogin" style="flex:0 0 auto;width:auto;margin:0">เข้าสู่ระบบ</button></div>
+        <div class="hint" style="margin-top:6px">ใส่ชื่อครั้งเดียว แล้วเข้าเกมพูดได้เลย ไม่ต้องทำอะไรเพิ่ม</div>
+        <button class="link" id="btnUseCode">หรือเชื่อมด้วยรหัส (ไม่ต้องพิมพ์ชื่อ)</button>
+      </div>
+      <div id="acctIn" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <b id="meName">-</b><span class="hint" id="rangeTxt"></span>
+        </div>
+        <div class="hint" id="acctState"></div>
+        <div class="badges" id="badges" style="margin-top:8px"></div>
+      </div>
+      <div class="hint" id="connTxt" style="margin-top:6px"></div>
+    </div>
+
+    <div class="card mic">
+      <button class="micbtn" id="btnMic">🎤</button>
+      <div class="hint" id="micHint">แตะเพื่อปิด/เปิดไมค์</div>
+      <div class="row" style="width:100%">
+        <button class="tog" id="btnDeaf">🎧 ปิดหู</button>
+      </div>
+    </div>
+
+    <div class="card" id="myRangeCard">
+      <label style="margin-top:0">📏 ระยะเสียงของฉัน <span class="hint" id="myRangeTxt">-</span></label>
+      <input type="range" id="myRange" min="0" max="100" value="100">
+      <div class="hint">คนที่อยู่ไกลกว่านี้จะไม่ได้ยินคุณ (ตั้งได้ไม่เกินระยะที่แอดมินกำหนด) — เช่น ตั้ง 5 ไว้กระซิบ</div>
+    </div>
+
+    <div class="card">
+      <label style="margin-top:0">โหมดพูด</label>
+      <div class="seg"><button id="mVad" class="sel">พูดแล้วส่งอัตโนมัติ</button><button id="mPtt">กดค้างปุ่มไมค์เพื่อพูด</button></div>
+      <label>ระดับเสียงไมค์ <span id="vadLbl" class="hint">(เส้นเหลือง = จุดเริ่มส่งเสียง)</span></label>
+      <div class="meter"><i id="lvl"></i><b id="thrMark"></b></div>
+      <label>ความไวไมค์</label>
+      <input type="range" id="sens" min="1" max="100" value="60">
+      <label>เพิ่มเสียงไมค์ <span class="hint" id="boostTxt">100%</span></label>
+      <input type="range" id="boost" min="50" max="300" value="100">
+      <label>ไมโครโฟน <button class="link" id="btnRefreshDev" style="padding:0;font-size:12px">รีเฟรช</button></label>
+      <select id="selIn"><option value="">อัตโนมัติ</option></select>
+      <div id="rowOut"><label>ลำโพง / หูฟัง</label><select id="selOut"><option value="">อัตโนมัติ</option></select></div>
+      <label style="margin-top:0">🔇 ตัดเสียงรบกวน</label>
+      <select id="nsSel"><option value="0">ปิด</option><option value="1">ปกติ</option><option value="2">แรง (ตัดเสียงพัดลม/เสียงหึ่ง/เสียงพื้นหลัง)</option></select>
+      <label style="display:flex;align-items:center;gap:8px;color:var(--txt)"><input type="checkbox" id="echo" style="width:20px;height:20px"> กันเสียงสะท้อน <span class="hint">(เปิดไว้ถ้าไม่ได้ใส่หูฟัง)</span></label>
+      <label>เสียงลำโพงรวม <span class="hint" id="volTxt">100%</span></label>
+      <input type="range" id="vol" min="0" max="200" value="100">
+      <div class="hint" id="hotkeyHint"></div>
+      <div id="hkBox" class="hidden" style="margin-top:12px">
+        <b>⌨️ ปุ่มลัด (ใช้ได้ขณะเล่นเกม)</b>
+        <div class="hkrow"><span>ปิด/เปิดไมค์</span><kbd id="hk_mute">-</kbd><button class="hkset" data-a="mute">ตั้งปุ่ม</button><button class="hkclr" data-a="mute" title="ลบ">✕</button></div>
+        <div class="hkrow"><span>ปิด/เปิดหู</span><kbd id="hk_deaf">-</kbd><button class="hkset" data-a="deaf">ตั้งปุ่ม</button><button class="hkclr" data-a="deaf" title="ลบ">✕</button></div>
+        <div class="hkrow"><span>กดค้างเพื่อพูด</span><kbd id="hk_ptt">-</kbd><button class="hkset" data-a="ptt">ตั้งปุ่ม</button><button class="hkclr" data-a="ptt" title="ลบ">✕</button></div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--txt)"><input type="checkbox" id="pttOn" style="width:20px;height:20px"> ใช้โหมดกดค้างเพื่อพูด (ปล่อยปุ่ม = ไมค์ไม่ส่งเสียง)</label>
+        <div class="hint" id="hkHint">กด "ตั้งปุ่ม" แล้วกดปุ่มคีย์บอร์ดหรือปุ่มข้างเมาส์ที่ต้องการ • Esc = ยกเลิก</div>
+      </div>
+      <div class="hint" id="codecTxt"></div>
+    </div>
+
+    <div class="card">
+      <b>คนที่อยู่ในระยะ</b> <span class="hint">(แตะชื่อเพื่อปรับเสียงรายคน • 🧱 มีผนังกั้น • 🌊 ใต้น้ำ)</span>
+      <ul id="nearby"><li class="hint">ไม่มีใครอยู่ใกล้</li></ul>
+    </div>
+
+    <details class="card host"><summary>🏠 ฉันเป็นเจ้าของโลก (โลกธรรมดา)</summary><div class="hostBody"></div></details>
+    <details class="card host"><summary>🖥️ ฉันเป็นเจ้าของเซิร์ฟเวอร์ (mcsv / BDS)</summary><div class="srvBody"></div></details>
+
+    <div class="row"><button id="btnUnlink">ออกจากระบบ / เปลี่ยนชื่อ</button></div>
+  </section>
+</div>
+<script src="capacitor.js"></script>
+<script src="config.js"></script>
+<script src="codec.js"></script>
+<script src="vfx.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

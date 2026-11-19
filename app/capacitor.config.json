@@ -1,0 +1,8 @@
+{
+  "appId": "com.astranova.voice",
+  "appName": "Astra Nova Voice",
+  "webDir": "www",
+  "backgroundColor": "#05060f",
+  "server": { "androidScheme": "http", "cleartext": true },
+  "android": { "allowMixedContent": true }
+}

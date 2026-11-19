@@ -1,0 +1,73 @@
+Astra Nova Voice — สัญญาอนุญาตการใช้งาน (License)
+Copyright (c) 2026 ZAYA (ซายะ). สงวนลิขสิทธิ์ทั้งหมด / All rights reserved.
+
+================================================================
+ภาษาไทย
+================================================================
+
+ซอฟต์แวร์นี้ ได้แก่ ซอร์สโค้ด แอดออนมายคราฟ (Behavior Pack / Resource Pack)
+แอป (Android, iOS, Windows, เว็บ) เซิร์ฟเวอร์เสียง รูปภาพ ไอคอน โลโก้
+และไฟล์ทั้งหมดในที่เก็บนี้ (ต่อไปเรียกว่า "ซอฟต์แวร์") เป็นลิขสิทธิ์ของ
+ซายะ (ZAYA) ผู้ถือลิขสิทธิ์แต่เพียงผู้เดียว
+
+1. สิ่งที่อนุญาต
+   บุคคลทั่วไปอนุญาตให้ดาวน์โหลดและใช้งานซอฟต์แวร์ฉบับที่ผู้ถือลิขสิทธิ์
+   เผยแพร่ เพื่อการเล่นส่วนตัวและไม่แสวงหากำไรเท่านั้น
+
+2. สิ่งที่ห้าม (เว้นแต่ได้รับอนุญาตเป็นลายลักษณ์อักษรจากซายะ)
+   ก. ห้ามแก้ไข ดัดแปลง แปลง ถอดรหัส หรือสร้างงานต่อยอดจากซอฟต์แวร์
+      ไม่ว่าทั้งหมดหรือบางส่วน
+   ข. ห้ามใช้ซอฟต์แวร์เพื่อการค้าหรือแสวงหารายได้ทุกรูปแบบ เช่น ขาย
+      ให้เช่า เก็บเงินค่าใช้งาน รวมไว้ในสินค้า/แพ็กที่ขาย หรือใช้ในเซิร์ฟเวอร์
+      ที่เก็บเงินเพื่อเข้าถึงฟีเจอร์นี้
+   ค. ห้ามนำซอฟต์แวร์ไปเผยแพร่ซ้ำ อัปโหลดซ้ำ หรือแจกจ่ายในชื่ออื่น
+      รวมถึงห้ามลบหรือเปลี่ยนชื่อผู้สร้าง โลโก้ และข้อความลิขสิทธิ์นี้
+   ง. ห้ามอ้างว่าเป็นผู้สร้างหรือเจ้าของซอฟต์แวร์
+
+3. การขออนุญาต
+   การใช้งานใดที่อยู่นอกเหนือข้อ 1 ต้องได้รับอนุญาตจากซายะก่อนเท่านั้น
+   ติดต่อผ่าน GitHub: https://github.com/ZAYA-ZEN
+
+4. การยกเลิกสิทธิ์
+   หากฝ่าฝืนข้อใดข้อหนึ่ง สิทธิ์การใช้งานตามสัญญานี้สิ้นสุดลงทันที
+
+5. ไม่มีการรับประกัน
+   ซอฟต์แวร์ให้บริการ "ตามสภาพ" โดยไม่มีการรับประกันใด ๆ ผู้ถือลิขสิทธิ์
+   ไม่รับผิดชอบต่อความเสียหายที่เกิดจากการใช้งานซอฟต์แวร์
+
+================================================================
+English
+================================================================
+
+This software — including the source code, Minecraft add-ons
+(Behavior Pack / Resource Pack), apps (Android, iOS, Windows, web), the
+voice server, images, icons, logo and every file in this repository
+(the "Software") — is the copyright of ZAYA (ซายะ), the sole copyright
+holder.
+
+1. Permitted use
+   You may download and use official releases of the Software for
+   personal, non-commercial play only.
+
+2. Prohibited without prior written permission from ZAYA
+   a. Modifying, adapting, translating, decompiling, or creating
+      derivative works of the Software, in whole or in part.
+   b. Any commercial use, including selling, renting, charging for
+      access, bundling into paid products or packs, or using it on a
+      server that charges for access to this feature.
+   c. Redistributing, re-uploading, or publishing the Software under
+      another name, or removing or altering the author name, logo, or
+      this copyright notice.
+   d. Claiming to be the author or owner of the Software.
+
+3. Permission requests
+   Any use beyond section 1 requires prior permission from ZAYA.
+   Contact via GitHub: https://github.com/ZAYA-ZEN
+
+4. Termination
+   Any breach of these terms immediately ends your rights under this
+   license.
+
+5. No warranty
+   The Software is provided "AS IS", without warranty of any kind. The
+   copyright holder is not liable for any damage arising from its use.

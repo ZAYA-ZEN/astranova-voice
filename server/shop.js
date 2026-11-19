@@ -1,4 +1,4 @@
-// หน้าร้าน Astra Nova Voice HUB: ขายแอดออน 69 บาท + ตรวจสลิป + ออกคีย์ + ดาวน์โหลดแอดออนที่ฝังคีย์แล้ว
+// หน้าร้าน Astra Nova Voice HUB: ขายแอดออน 69 บาท (ลูกค้าส่งสลิปทาง Discord → ผู้ขายออกคีย์ที่ /admin)
 // Copyright (c) 2026 ZAYA (ซายะ). สงวนลิขสิทธิ์ทั้งหมด
 "use strict";
 const fs = require("fs");
@@ -10,85 +10,15 @@ const LIC = require("./license.js");
 const ENV = process.env;
 const PRICE = Number(ENV.PRICE) || 69;
 const ADMIN_PASSWORD = ENV.ADMIN_PASSWORD || "";
-const EASYSLIP_API_KEY = ENV.EASYSLIP_API_KEY || "";
-// ผู้รับเงินที่ยอมรับ (ชื่อบางส่วน ไทย/อังกฤษ) และเลขท้ายเบอร์ทรูมันนี่/พร้อมเพย์
-const RECEIVER_NAMES = String(ENV.RECEIVER_NAMES || "พีรพัฒน์,PEERAPAT,PHASANE,พาเสน่ห์").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-const RECEIVER_LAST4 = String(ENV.RECEIVER_PHONE_LAST4 || "9203").replace(/\D/g, "");
-const MAX_SLIP_AGE_H = Number(ENV.MAX_SLIP_AGE_HOURS) || 48;
-const WEBHOOK = ENV.DISCORD_WEBHOOK || "";
-const CONTACT_URL = ENV.CONTACT_URL || "";
 const CONTACT_NAME = ENV.CONTACT_NAME || "optius_z"; // ชื่อ Discord ที่ให้ลูกค้าแอดเพื่อน
 const GH = ENV.APP_RELEASE_BASE || "https://github.com/ZAYA-ZEN/astranova-voice/releases/latest/download/";
 
-// ---------- คำสั่งซื้อ (เก็บในหน่วยความจำ + ไฟล์ — ข้อมูลหลักคือคีย์ซึ่งสร้างซ้ำได้จากเลขสลิป) ----------
+// คีย์ที่ออกแล้ว (เก็บในไฟล์ — Render ฟรีลบเมื่อรีสตาร์ท แต่คีย์ยังใช้ได้ตลอด เพราะตรวจด้วยลายเซ็น)
 const DATA = path.join(__dirname, "orders.json");
 let orders = {};
 try { orders = JSON.parse(fs.readFileSync(DATA, "utf8")); } catch {}
-const slips = new Map(); // orderId -> Buffer รูปสลิป (รออนุมัติ)
 const save = () => { try { fs.writeFileSync(DATA, JSON.stringify(orders)); } catch {} };
 const newId = () => crypto.randomBytes(9).toString("base64url");
-
-// ---------- ส่งแจ้งเตือนเข้า Discord ----------
-async function notify(text, img) {
-  if (!WEBHOOK) return;
-  try {
-    const fd = new FormData();
-    fd.append("payload_json", JSON.stringify({ content: text.slice(0, 1900) }));
-    if (img) fd.append("files[0]", new Blob([img], { type: "image/jpeg" }), "slip.jpg");
-    await fetch(WEBHOOK, { method: "POST", body: fd });
-  } catch (e) { console.warn("แจ้งเตือน Discord ไม่สำเร็จ", e.message); }
-}
-
-// ---------- ตรวจสลิปด้วย EasySlip ----------
-const strings = (o, out = []) => { if (o == null) return out; if (typeof o === "string" || typeof o === "number") out.push(String(o)); else if (typeof o === "object") for (const v of Object.values(o)) strings(v, out); return out; };
-function receiverOk(receiver) {
-  const all = strings(receiver).map((s) => s.toUpperCase());
-  if (RECEIVER_NAMES.some((n) => all.some((s) => s.includes(n)))) return true;
-  if (RECEIVER_LAST4 && all.some((s) => s.replace(/\D/g, "").endsWith(RECEIVER_LAST4) && /[xX*\d]/.test(s))) return true;
-  return false;
-}
-async function callEasySlip(kind, base64, remark) {
-  const r = await fetch("https://api.easyslip.com/v2/verify/" + kind, {
-    method: "POST",
-    headers: { Authorization: "Bearer " + EASYSLIP_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ base64, checkDuplicate: true, remark }),
-  });
-  let j; try { j = await r.json(); } catch { j = {}; }
-  return j;
-}
-// คืน {ok, ref, amount, date, dup, reason, retry}
-async function verifySlip(base64, method, remark) {
-  const order = method === "truemoney" ? ["truewallet", "bank"] : ["bank", "truewallet"];
-  let lastErr = null;
-  for (const kind of order) {
-    let j;
-    try { j = await callEasySlip(kind, base64, remark); } catch (e) { lastErr = { code: "NETWORK", message: e.message }; continue; }
-    if (!j.success) { lastErr = j.error || { code: "UNKNOWN" }; if (lastErr.code === "SLIP_PENDING") break; continue; }
-    const d = j.data || {}, raw = d.rawSlip || {};
-    const amount = Number(d.amountInSlip ?? (typeof raw.amount === "object" ? raw.amount && raw.amount.amount : raw.amount)) || 0;
-    const ref = String(raw.transRef || raw.transactionId || raw.payload || "");
-    const res = { kind, ref, amount, date: raw.date, dup: !!d.isDuplicate, sender: strings(raw.sender).slice(0, 3).join(" ") };
-    if (!ref) return { ...res, ok: false, reason: "อ่านเลขที่รายการในสลิปไม่ได้" };
-    if (!receiverOk(raw.receiver)) return { ...res, ok: false, reason: "ผู้รับเงินในสลิปไม่ใช่บัญชีของร้าน" };
-    if (amount + 0.001 < PRICE) return { ...res, ok: false, reason: `ยอดเงินในสลิป ${amount} บาท ไม่ครบ ${PRICE} บาท` };
-    const t = Date.parse(raw.date);
-    if (!res.dup && t && Date.now() - t > MAX_SLIP_AGE_H * 3600000) return { ...res, ok: false, reason: `สลิปเก่าเกิน ${MAX_SLIP_AGE_H} ชั่วโมง` };
-    return { ...res, ok: true };
-  }
-  const code = lastErr && lastErr.code;
-  if (code === "SLIP_PENDING") return { ok: false, retry: true, reason: "ธนาคารยังไม่ยืนยันรายการ (โอนไม่ถึง 5 นาที) รอสักครู่แล้วลองใหม่" };
-  if (["SLIP_NOT_FOUND", "INVALID_IMAGE", "VALIDATION_ERROR", "IMAGE_SIZE_TOO_LARGE", "INVALID_SLIP", "QR_NOT_FOUND"].includes(code) || /not.*(valid|found)/i.test((lastErr && lastErr.message) || ""))
-    return { ok: false, reason: "รูปนี้ไม่ใช่สลิปที่ตรวจได้ หรือ QR ในสลิปไม่ชัด — ใช้รูปสลิปเต็มใบจากแอปธนาคาร/ทรูมันนี่" };
-  return { ok: false, fallback: true, reason: "ระบบตรวจสลิปอัตโนมัติขัดข้อง (" + (code || "?") + ")" };
-}
-
-// กันยิงซ้ำ: ต่อ IP ไม่เกิน 10 ครั้ง / 10 นาที
-const hits = new Map();
-function limited(ip) {
-  const now = Date.now(), a = (hits.get(ip) || []).filter((t) => now - t < 600000);
-  a.push(now); hits.set(ip, a);
-  return a.length > 10;
-}
 
 // ---------- สร้างไฟล์ .mcaddon (zip) ที่ฝังคีย์ ----------
 const CRC = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });
@@ -151,10 +81,9 @@ function buildAddon(ROOT, type, license, hubUrl) {
 const json = (res, code, o) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(o)); };
 const hubUrlOf = (req) => (ENV.PUBLIC_URL || ENV.RENDER_EXTERNAL_URL || ((req.headers["x-forwarded-proto"] || "http") + "://" + req.headers.host)).replace(/\/+$/, "");
 const isAdmin = (pw) => !!ADMIN_PASSWORD && typeof pw === "string" && pw.length === ADMIN_PASSWORD.length && crypto.timingSafeEqual(Buffer.from(pw), Buffer.from(ADMIN_PASSWORD));
-function issue(o, key, via) {
-  o.status = "approved"; o.key = key; o.via = via; o.doneAt = Date.now();
-  save();
-}
+// กันเดารหัสหลังร้าน: ผิดเกิน 10 ครั้ง / 15 นาที ต่อ IP → ล็อก
+const fails = new Map();
+const lockedOut = (ip) => (fails.get(ip) || []).filter((t) => Date.now() - t < 900000).length >= 10;
 
 async function handle(req, res, url, h) {
   const p = url.pathname;
@@ -168,15 +97,10 @@ async function handle(req, res, url, h) {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       return res.end(fs.readFileSync(path.join(h.ROOT, "LICENSE"))), true;
     }
-    if (p === "/api/info") return json(res, 200, { price: PRICE, auto: !!EASYSLIP_API_KEY, hub: hubUrlOf(req), contact: CONTACT_URL, contactName: CONTACT_NAME }), true;
+    if (p === "/api/info") return json(res, 200, { price: PRICE, hub: hubUrlOf(req), contactName: CONTACT_NAME }), true;
     if (p === "/api/check") {
       const k = LIC.normalize(url.searchParams.get("key"));
       return json(res, 200, { valid: LIC.valid(k), key: k, hub: hubUrlOf(req), apps: { android: GH + "AstraNovaVoice-Android.apk", windows: GH + "AstraNovaVoice-Windows.exe", ios: GH + "AstraNovaVoice-iOS.ipa" } }), true;
-    }
-    if (p.startsWith("/api/order/")) {
-      const o = orders[p.slice(11)];
-      if (!o) return json(res, 404, { error: "ไม่พบคำสั่งซื้อ" }), true;
-      return json(res, 200, { status: o.status, key: o.status === "approved" ? o.key : undefined, reason: o.reason }), true;
     }
     if (p === "/get/addon") {
       const k = LIC.normalize(url.searchParams.get("key"));
@@ -186,86 +110,29 @@ async function handle(req, res, url, h) {
       res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="AstraNovaVoice-HUB-${type === "world" ? "World" : "Server"}.mcaddon"`, "Content-Length": buf.length });
       return res.end(buf), true;
     }
-    if (p.startsWith("/api/admin/slip/")) {
-      if (!isAdmin(url.searchParams.get("pw"))) return json(res, 403, { error: "รหัสผ่านไม่ถูก" }), true;
-      const img = slips.get(p.slice(16));
-      if (!img) { res.writeHead(404); return res.end(), true; }
-      res.writeHead(200, { "Content-Type": "image/jpeg" }); return res.end(img), true;
-    }
     return false;
   }
-  if (req.method !== "POST" || !p.startsWith("/api/")) return false;
-
+  if (req.method !== "POST" || !p.startsWith("/api/admin/")) return false;
   let body;
-  try { body = JSON.parse((await h.readBody(req, 7e6)).toString("utf8")); } catch { return json(res, 400, { error: "ข้อมูลไม่ถูกต้อง หรือรูปใหญ่เกินไป" }), true; }
-
-  // ลูกค้าส่งสลิป
-  if (p === "/api/verify") {
-    if (!body.agree) return json(res, 400, { error: "ต้องยอมรับข้อตกลงลิขสิทธิ์ก่อน" }), true;
-    if (limited(h.clientIp(req))) return json(res, 429, { error: "ส่งบ่อยเกินไป รอ 10 นาทีแล้วลองใหม่" }), true;
-    const m = String(body.image || "").match(/^data:image\/(png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=]+)$/);
-    if (!m) return json(res, 400, { error: "แนบรูปสลิปก่อน (PNG/JPG)" }), true;
-    const img = Buffer.from(m[2], "base64");
-    if (img.length > 4 * 1024 * 1024) return json(res, 400, { error: "รูปใหญ่เกิน 4MB" }), true;
-    const method = body.method === "truemoney" ? "truemoney" : "promptpay";
-    const contact = String(body.contact || "").slice(0, 80);
+  try { body = JSON.parse((await h.readBody(req, 1e5)).toString("utf8")); } catch { return json(res, 400, { error: "ข้อมูลไม่ถูกต้อง" }), true; }
+  const ip = h.clientIp(req);
+  if (lockedOut(ip)) return json(res, 429, { error: "ใส่รหัสผิดหลายครั้ง รอ 15 นาที" }), true;
+  if (!isAdmin(body.pw)) { fails.set(ip, (fails.get(ip) || []).concat(Date.now())); return json(res, 403, { error: "รหัสผ่านไม่ถูก (ตั้ง ADMIN_PASSWORD ใน Render)" }), true; }
+  fails.delete(ip);
+  const act = p.slice(11);
+  if (act === "list") {
+    const list = Object.values(orders).sort((a, b) => b.at - a.at).slice(0, 300);
+    const servers = [...h.rooms.values()].filter((r) => r.online()).map((r) => ({ name: r.name, key: r.license, players: r.players.size }));
+    return json(res, 200, { orders: list, servers }), true;
+  }
+  if (act === "issue") { // ออกคีย์ให้ลูกค้า (หลังตรวจสลิปทาง Discord เอง)
+    const note = String(body.note || "").slice(0, 120);
+    const key = LIC.keyFor("issue:" + note + ":" + Date.now() + ":" + Math.random());
     const id = newId();
-    const o = orders[id] = { id, at: Date.now(), method, contact, status: "pending" };
-
-    if (EASYSLIP_API_KEY) {
-      const v = await verifySlip(m[2], method, "AstraNova " + id);
-      o.check = { ok: v.ok, ref: v.ref, amount: v.amount, date: v.date, dup: v.dup, reason: v.reason };
-      if (v.ok) {
-        const key = LIC.keyFor(v.ref);
-        issue(o, key, "auto");
-        notify(`💰 ขายได้ ${v.amount} บาท (${v.kind === "truewallet" ? "TrueMoney" : "ธนาคาร"}) ${v.dup ? "[สลิปเดิม ส่งคีย์เดิม]" : ""}\nคีย์: ${key}\nเลขสลิป: ${v.ref}\nติดต่อ: ${contact || "-"}`);
-        return json(res, 200, { ok: true, key, dup: v.dup, order: id }), true;
-      }
-      if (!v.fallback) {
-        o.status = "rejected"; o.reason = v.reason; save();
-        return json(res, 200, { ok: false, retry: !!v.retry, error: v.reason }), true;
-      }
-      // ระบบตรวจขัดข้อง → ส่งให้เจ้าของตรวจเอง
-    }
-    slips.set(id, img); save();
-    notify(`🧾 สลิปรอตรวจ (${method === "truemoney" ? "TrueMoney" : "พร้อมเพย์"}) ติดต่อ: ${contact || "-"}\n${o.check ? "เหตุผล: " + (o.check.reason || "") + "\n" : ""}อนุมัติที่: ${hubUrlOf(req)}/admin`, img);
-    return json(res, 200, { ok: false, pending: true, order: id, msg: "ส่งสลิปแล้ว รอผู้ขายตรวจสอบ หน้านี้จะขึ้นคีย์ให้เองเมื่ออนุมัติ" }), true;
+    orders[id] = { id, at: Date.now(), note, key }; save();
+    return json(res, 200, { ok: true, key, link: hubUrlOf(req) + "/my?key=" + encodeURIComponent(key) }), true;
   }
-
-  // ---- แอดมิน ----
-  if (p.startsWith("/api/admin/")) {
-    if (!isAdmin(body.pw)) return json(res, 403, { error: "รหัสผ่านไม่ถูก (ตั้ง ADMIN_PASSWORD ใน Render)" }), true;
-    const act = p.slice(11);
-    if (act === "list") {
-      const list = Object.values(orders).sort((a, b) => b.at - a.at).slice(0, 200).map((o) => ({ ...o, hasSlip: slips.has(o.id) }));
-      const servers = [...h.rooms.values()].filter((r) => r.online()).map((r) => ({ name: r.name, key: r.license, players: r.players.size }));
-      return json(res, 200, { orders: list, servers, auto: !!EASYSLIP_API_KEY }), true;
-    }
-    if (act === "approve") {
-      const o = orders[body.id];
-      if (!o) return json(res, 404, { error: "ไม่พบ" }), true;
-      const key = o.key || LIC.keyFor("order:" + o.id);
-      issue(o, key, "manual"); slips.delete(o.id);
-      return json(res, 200, { ok: true, key }), true;
-    }
-    if (act === "reject") {
-      const o = orders[body.id];
-      if (!o) return json(res, 404, { error: "ไม่พบ" }), true;
-      o.status = "rejected"; o.reason = String(body.reason || "สลิปไม่ถูกต้อง").slice(0, 200); slips.delete(o.id); save();
-      return json(res, 200, { ok: true }), true;
-    }
-    if (act === "gift") { // สร้างคีย์ให้ฟรี / ลูกค้าโอนนอกระบบ
-      const note = String(body.note || "").slice(0, 80);
-      const key = LIC.keyFor("gift:" + note + ":" + Date.now() + ":" + Math.random());
-      const id = newId();
-      orders[id] = { id, at: Date.now(), method: "gift", contact: note, status: "approved", key, via: "gift" }; save();
-      return json(res, 200, { ok: true, key }), true;
-    }
-    if (act === "fromslip") { // ลูกค้าทำคีย์หาย: ใส่เลขที่สลิป → ได้คีย์เดิม
-      return json(res, 200, { key: LIC.keyFor(String(body.ref || "").trim()) }), true;
-    }
-    return json(res, 404, { error: "?" }), true;
-  }
-  return false;
+  if (act === "check") return json(res, 200, { valid: LIC.valid(body.key), key: LIC.normalize(body.key) }), true;
+  return json(res, 404, { error: "?" }), true;
 }
-module.exports = { handle, buildAddon, verifySlip, receiverOk };
+module.exports = { handle, buildAddon };

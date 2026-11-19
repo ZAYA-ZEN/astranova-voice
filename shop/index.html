@@ -43,11 +43,11 @@
   <div class="card">
     <h2>วิธีซื้อ</h2>
     <ol class="steps">
-      <li>สแกน QR ด้านล่าง โอน <b><span class="pp">69</span> บาท</b> (ทรูมันนี่ หรือ พร้อมเพย์ จากแอปธนาคารไหนก็ได้)</li>
-      <li>บันทึกรูปสลิป แล้วอัปโหลดในช่องด้านล่าง</li>
-      <li>ระบบตรวจสลิปให้ แล้วได้ <b>คีย์</b> ไปใช้ที่ <a href="/my">ศูนย์ผู้ซื้อ</a> (ดาวน์โหลดแอดออน + วิธีติดตั้ง)</li>
+      <li>สแกน QR ด้านล่าง โอน <b>69 บาท</b> (ทรูมันนี่ หรือ พร้อมเพย์ จากแอปธนาคารไหนก็ได้)</li>
+      <li>แคปสลิป แล้วส่งให้ผู้ขายทาง Discord <b>optius_z</b></li>
+      <li>ได้ <b>คีย์</b> ไปใช้ที่ <a href="/my">ศูนย์ผู้ซื้อ</a> (ดาวน์โหลดแอดออน + วิธีติดตั้ง)</li>
     </ol>
-    <div class="mut">โอนไม่ได้ / มีปัญหา / อยากซื้อแบบคุยกันก่อน → ทักผู้ขายทาง Discord ด้านบนได้เลย</div>
+    <div class="mut">อยากสอบถามก่อนซื้อ → ทักผู้ขายทาง Discord ด้านบนได้เลย</div>
   </div>
 
   <div class="legalBox"></div>
@@ -74,17 +74,15 @@
   </div>
 
   <div class="card">
-    <h2>2. ส่งสลิป</h2>
-    <div class="drop" id="drop">
-      <div id="dropTxt">📎 แตะเพื่อเลือกรูปสลิป</div>
-      <img id="prev" style="display:none" alt="">
-    </div>
-    <input type="file" id="file" accept="image/*" style="display:none">
-    <label for="contact">ชื่อ / เฟซบุ๊ก / ดิสคอร์ด สำหรับติดต่อกลับ (ไม่บังคับ)</label>
-    <input type="text" id="contact" maxlength="80" placeholder="เช่น Discord: zaya#0001">
-    <label class="chk"><input type="checkbox" id="agree"> <span>ฉันอ่านและยอมรับ <b>ข้อห้ามด้านลิขสิทธิ์</b> ด้านบนแล้ว จะไม่แก้ไข แจกต่อ ขายต่อ หรือแชร์คีย์ให้ผู้อื่น</span></label>
-    <button class="pri" id="send" disabled>ตรวจสลิปและรับคีย์</button>
-    <div class="msg" id="msg"></div>
+    <h2>2. ส่งสลิปทาง Discord รับคีย์</h2>
+    <ol class="steps">
+      <li>แคปหน้าจอสลิปที่โอนแล้ว</li>
+      <li>แอดเพื่อน Discord <b>optius_z</b> (ดูวิธีด้านบน) แล้วส่ง <b>รูปสลิป</b> มาในแชท</li>
+      <li>ผู้ขายตรวจแล้วส่ง <b>คีย์ + ลิงก์ศูนย์ผู้ซื้อ</b> ให้ทางแชท</li>
+      <li>เปิด <a href="/my">ศูนย์ผู้ซื้อ</a> ใส่คีย์ แล้วดาวน์โหลดแอดออนได้เลย</li>
+    </ol>
+    <div class="mut">การชำระเงินถือว่าคุณอ่านและยอมรับ <b>ข้อห้ามด้านลิขสิทธิ์</b> ด้านบนแล้ว</div>
+    <a class="pri" href="#discord">ไปที่ชื่อ Discord ผู้ขาย</a>
   </div>
 
   <footer></footer>
@@ -92,71 +90,9 @@
 <script src="/s/legal.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-let method = "truemoney", imgData = null, contactUrl = "#discord";
-
 try { const k = localStorage.getItem("anv:key"); if (k) { $("myKeyCard").style.display = ""; $("myKey").textContent = k; $("myKeyLink").href = "/my?key=" + encodeURIComponent(k); } } catch {}
-
-$("tabTm").onclick = () => { method = "truemoney"; $("tabTm").classList.add("on"); $("tabPp").classList.remove("on"); $("qrTm").style.display = ""; $("qrPp").style.display = "none"; };
-$("tabPp").onclick = () => { method = "promptpay"; $("tabPp").classList.add("on"); $("tabTm").classList.remove("on"); $("qrPp").style.display = ""; $("qrTm").style.display = "none"; };
-
-const ready = () => { $("send").disabled = !(imgData && $("agree").checked); };
-$("agree").onchange = ready;
-$("drop").onclick = () => $("file").click();
-// ย่อรูปใหญ่ให้ไม่เกิน ~2000px (QR ในสลิปยังอ่านได้)
-$("file").onchange = () => {
-  const f = $("file").files[0];
-  if (!f) return;
-  const fr = new FileReader();
-  fr.onload = () => {
-    const im = new Image();
-    im.onload = () => {
-      let data = fr.result;
-      const max = 2000, sc = Math.min(1, max / Math.max(im.width, im.height));
-      if (sc < 1 || f.size > 3.5e6) {
-        const c = document.createElement("canvas");
-        c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc);
-        c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
-        data = c.toDataURL("image/jpeg", 0.92);
-      }
-      imgData = data; $("prev").src = data; $("prev").style.display = ""; $("dropTxt").textContent = "เปลี่ยนรูปสลิป"; ready();
-    };
-    im.src = fr.result;
-  };
-  fr.readAsDataURL(f);
-};
-
-function show(cls, html) { const m = $("msg"); m.className = "msg " + cls; m.innerHTML = html; }
-function gotKey(key, dup) {
-  try { localStorage.setItem("anv:key", key); } catch {}
-  show("ok", `<b>✅ ชำระเงินสำเร็จ ขอบคุณที่สนับสนุนครับ!</b>${dup ? "<br><span class='mut'>สลิปนี้เคยใช้แล้ว — นี่คือคีย์เดิมของสลิปนี้</span>" : ""}
-    <div class="key">${esc(key)}</div>
-    <div class="mut">เก็บคีย์นี้ไว้ (แคปจอ) ใช้ดาวน์โหลดซ้ำได้ตลอด • ห้ามแชร์ให้ผู้อื่น</div>
-    <a class="pri" href="/my?key=${encodeURIComponent(key)}">ไปศูนย์ผู้ซื้อ (ดาวน์โหลดแอดออน)</a>`);
-}
-async function poll(id) {
-  for (;;) {
-    await new Promise((r) => setTimeout(r, 5000));
-    try {
-      const o = await (await fetch("/api/order/" + id)).json();
-      if (o.status === "approved") return gotKey(o.key);
-      if (o.status === "rejected") return show("bad", "<b>❌ สลิปไม่ผ่าน</b><br>" + esc(o.reason || "") + `<br><a href="#discord">แอด Discord ผู้ขาย: optius_z</a>`);
-    } catch {}
-  }
-}
-$("send").onclick = async () => {
-  $("send").disabled = true; show("wait", "⏳ กำลังตรวจสลิป...");
-  try {
-    const r = await fetch("/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: imgData, method, contact: $("contact").value, agree: $("agree").checked }) });
-    const j = await r.json();
-    if (j.ok) return gotKey(j.key, j.dup);
-    if (j.pending) { try { localStorage.setItem("anv:order", j.order); } catch {} show("wait", "⏳ " + esc(j.msg) + "<br><span class='mut'>เปิดหน้านี้ค้างไว้ได้ หรือกลับมาเปิดใหม่ทีหลังในเครื่องนี้</span>"); return poll(j.order); }
-    show("bad", "<b>❌ ตรวจสลิปไม่ผ่าน</b><br>" + esc(j.error || "ลองใหม่อีกครั้ง") + (j.retry ? "" : `<br><span class="mut">ถ้าโอนแล้วจริง <a href="#discord">แอด Discord ผู้ขาย: optius_z</a></span>`));
-  } catch (e) { show("bad", "เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง"); }
-  ready();
-};
-// มีคำสั่งซื้อค้างรอตรวจในเครื่องนี้ → ตามสถานะต่อ
-try { const oid = localStorage.getItem("anv:order"); if (oid) fetch("/api/order/" + oid).then((r) => r.json()).then((o) => { if (o.status === "pending") { show("wait", "⏳ สลิปของคุณรอผู้ขายตรวจสอบอยู่"); poll(oid); } else if (o.status === "approved") { localStorage.removeItem("anv:order"); try { if (!localStorage.getItem("anv:key")) gotKey(o.key); } catch {} } }); } catch {}
+$("tabTm").onclick = () => { $("tabTm").classList.add("on"); $("tabPp").classList.remove("on"); $("qrTm").style.display = ""; $("qrPp").style.display = "none"; };
+$("tabPp").onclick = () => { $("tabPp").classList.add("on"); $("tabTm").classList.remove("on"); $("qrPp").style.display = ""; $("qrTm").style.display = "none"; };
 </script>
 </body>
 </html>

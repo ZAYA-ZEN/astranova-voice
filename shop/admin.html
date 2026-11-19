@@ -4,39 +4,42 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>แอดมินร้าน — Astra Nova Voice HUB</title>
+<title>หลังร้าน — Astra Nova Voice HUB</title>
 <link rel="stylesheet" href="/s/style.css">
 </head>
 <body>
 <div class="wrap">
-  <div class="hero"><div class="brand">ร้าน <span>แอดมิน</span></div></div>
+  <div class="hero"><div class="brand">หลัง<span>ร้าน</span></div></div>
   <div class="card" id="login">
-    <label>รหัสผ่านแอดมิน (ADMIN_PASSWORD ใน Render)</label>
+    <label>รหัสผ่านหลังร้าน</label>
     <input type="password" id="pw">
     <button class="pri" id="btnLogin">เข้าสู่ระบบ</button>
     <div class="msg" id="loginMsg"></div>
   </div>
   <div id="panel" style="display:none">
-    <div class="card"><h2>สถานะ</h2><div id="stat"></div></div>
     <div class="card">
-      <h2>🧾 สลิปรอตรวจ</h2>
-      <div id="pending" class="mut">ไม่มี</div>
+      <h2>🔑 ออกคีย์ให้ลูกค้า</h2>
+      <div class="mut">ตรวจสลิปที่ลูกค้าส่งมาทาง Discord ให้เรียบร้อยก่อน แล้วค่อยกดออกคีย์</div>
+      <label>หมายเหตุ (ชื่อ Discord ลูกค้า / ยอด / วันที่)</label>
+      <input type="text" id="note" placeholder="เช่น discord: somchai • 69 บาท TrueMoney">
+      <button class="pri" id="btnIssue">ออกคีย์ใหม่</button>
+      <div id="out" style="display:none">
+        <div class="key" id="outKey"></div>
+        <div class="mut">ข้อความสำหรับส่งให้ลูกค้า:</div>
+        <div class="cmd"><code id="outMsg" style="white-space:pre-wrap"></code><button class="sec" id="btnCopy">คัดลอก</button></div>
+      </div>
     </div>
     <div class="card">
-      <h2>🎁 สร้างคีย์เอง</h2>
-      <div class="mut">ใช้แจกฟรี หรือลูกค้าโอนนอกระบบ</div>
-      <input type="text" id="giftNote" placeholder="หมายเหตุ เช่น ชื่อลูกค้า">
-      <button class="sec" id="btnGift" style="margin-top:8px">สร้างคีย์</button>
-      <h2 style="margin-top:16px">🔎 ลูกค้าทำคีย์หาย</h2>
-      <div class="mut">ใส่เลขที่รายการ (Ref) ในสลิป → ได้คีย์เดิม</div>
-      <input type="text" id="ref" placeholder="เลขที่รายการในสลิป">
-      <button class="sec" id="btnRef" style="margin-top:8px">หาคีย์</button>
-      <div class="key" id="out" style="display:none"></div>
+      <h2>🔎 เช็กคีย์</h2>
+      <input type="text" id="chk" placeholder="ANV-XXXX-XXXX-XXXX">
+      <button class="sec" id="btnChk" style="margin-top:8px">ตรวจ</button> <span id="chkOut"></span>
     </div>
-    <div class="card"><h2>รายการล่าสุด</h2><div id="list" style="overflow-x:auto"></div></div>
+    <div class="card"><h2>คีย์ที่ออกล่าสุด</h2><div class="mut">ประวัตินี้หายเมื่อเซิร์ฟเวอร์รีสตาร์ท (คีย์ยังใช้ได้ปกติ) — จดคีย์ไว้ในแชท Discord กับลูกค้าด้วย</div><div id="list" style="overflow-x:auto"></div></div>
     <div class="card"><h2>เซิฟที่ออนไลน์</h2><div id="servers"></div></div>
   </div>
+  <footer></footer>
 </div>
+<script src="/s/legal.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -44,29 +47,25 @@ let pw = sessionStorage.getItem("anv:pw") || "";
 const api = async (a, b = {}) => (await fetch("/api/admin/" + a, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pw, ...b }) })).json();
 async function load() {
   const j = await api("list");
-  if (j.error) { $("login").style.display = ""; $("panel").style.display = "none"; const m = $("loginMsg"); m.className = "msg bad"; m.textContent = j.error; return; }
+  if (j.error) { sessionStorage.removeItem("anv:pw"); $("login").style.display = ""; $("panel").style.display = "none"; const m = $("loginMsg"); m.className = "msg bad"; m.textContent = j.error; return; }
   sessionStorage.setItem("anv:pw", pw);
   $("login").style.display = "none"; $("panel").style.display = "";
-  const ok = j.orders.filter((o) => o.status === "approved");
-  $("stat").innerHTML = `ตรวจสลิปอัตโนมัติ: ${j.auto ? "<b style='color:#34d399'>เปิด (EasySlip)</b>" : "<b style='color:#fbbf24'>ปิด — ตรวจเองทุกใบ</b>"}<br>ขายแล้ว (ตั้งแต่เปิดเครื่องล่าสุด): <b>${ok.length}</b> รายการ • เซิฟออนไลน์: <b>${j.servers.length}</b>`;
-  const pend = j.orders.filter((o) => o.status === "pending");
-  $("pending").innerHTML = pend.length ? pend.map((o) => `
-    <div class="card" style="margin:8px 0">
-      <div>${new Date(o.at).toLocaleString("th-TH")} • ${o.method === "truemoney" ? "TrueMoney" : "พร้อมเพย์"} • ติดต่อ: ${esc(o.contact || "-")}</div>
-      ${o.check && o.check.reason ? `<div class="mut">ระบบอัตโนมัติ: ${esc(o.check.reason)}</div>` : ""}
-      ${o.hasSlip ? `<img src="/api/admin/slip/${o.id}?pw=${encodeURIComponent(pw)}" style="max-width:100%;max-height:420px;border-radius:10px;margin:8px 0">` : "<div class='mut'>(รูปสลิปหายเพราะเครื่องรีสตาร์ท)</div>"}
-      <div style="display:flex;gap:8px"><button class="sec" data-ok="${o.id}">✅ อนุมัติ</button><button class="sec" data-no="${o.id}">❌ ปฏิเสธ</button></div>
-    </div>`).join("") : "ไม่มี";
-  $("pending").querySelectorAll("[data-ok]").forEach((b) => (b.onclick = async () => { await api("approve", { id: b.dataset.ok }); load(); }));
-  $("pending").querySelectorAll("[data-no]").forEach((b) => (b.onclick = async () => { const r = prompt("เหตุผลที่ปฏิเสธ (ลูกค้าจะเห็น)", "ไม่พบยอดเงินเข้า"); if (r != null) { await api("reject", { id: b.dataset.no, reason: r }); load(); } }));
-  $("list").innerHTML = `<table><tr><th>เวลา</th><th>สถานะ</th><th>คีย์ / เหตุผล</th><th>ติดต่อ</th><th>ยอด</th></tr>${j.orders.map((o) => `<tr><td>${new Date(o.at).toLocaleString("th-TH")}</td><td><span class="pill ${o.status}">${o.status}</span><br><span class="mut">${esc(o.via || o.method)}</span></td><td style="font-family:monospace">${esc(o.key || o.reason || "")}</td><td>${esc(o.contact)}</td><td>${o.check ? esc(o.check.amount) : ""}</td></tr>`).join("")}</table>`;
+  $("list").innerHTML = j.orders.length ? `<table><tr><th>เวลา</th><th>คีย์</th><th>หมายเหตุ</th></tr>${j.orders.map((o) => `<tr><td>${new Date(o.at).toLocaleString("th-TH")}</td><td style="font-family:monospace">${esc(o.key)}</td><td>${esc(o.note || o.contact)}</td></tr>`).join("")}</table>` : "<span class='mut'>ยังไม่มี</span>";
   $("servers").innerHTML = j.servers.length ? j.servers.map((s) => `<div>${esc(s.name)} • ${s.players} คน • <code>${esc(s.key)}</code></div>`).join("") : "<span class='mut'>ไม่มี</span>";
 }
 $("btnLogin").onclick = () => { pw = $("pw").value; load(); };
-$("btnGift").onclick = async () => { const j = await api("gift", { note: $("giftNote").value }); $("out").style.display = ""; $("out").textContent = j.key || j.error; load(); };
-$("btnRef").onclick = async () => { const j = await api("fromslip", { ref: $("ref").value }); $("out").style.display = ""; $("out").textContent = j.key || j.error; };
+$("pw").onkeydown = (e) => { if (e.key === "Enter") $("btnLogin").click(); };
+$("btnIssue").onclick = async () => {
+  if (!confirm("ออกคีย์ใหม่ให้: " + ($("note").value || "(ไม่มีหมายเหตุ)") + " ?")) return;
+  const j = await api("issue", { note: $("note").value });
+  if (!j.key) return alert(j.error || "ไม่สำเร็จ");
+  $("out").style.display = ""; $("outKey").textContent = j.key;
+  $("outMsg").textContent = `ขอบคุณที่ซื้อ Astra Nova Voice HUB ครับ 🎉\nคีย์ของคุณ: ${j.key}\nดาวน์โหลดแอดออน + วิธีติดตั้ง: ${j.link}\n(ห้ามแชร์/แจก/ขายต่อคีย์และไฟล์ — อ่านข้อห้ามลิขสิทธิ์ในหน้าเว็บ)`;
+  $("note").value = ""; load();
+};
+$("btnCopy").onclick = () => { const t = $("outMsg").textContent; navigator.clipboard ? navigator.clipboard.writeText(t).then(() => ($("btnCopy").textContent = "คัดลอกแล้ว")) : prompt("คัดลอก", t); };
+$("btnChk").onclick = async () => { const j = await api("check", { key: $("chk").value }); $("chkOut").innerHTML = j.valid ? "<b style='color:#34d399'>✅ ใช้ได้</b>" : "<b style='color:#f87171'>❌ ไม่ถูกต้อง/ถูกระงับ</b>"; };
 if (pw) load();
-setInterval(() => { if ($("panel").style.display === "" && !document.hidden) load(); }, 20000);
 </script>
 </body>
 </html>

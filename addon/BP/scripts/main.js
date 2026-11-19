@@ -1,4 +1,4 @@
-import { world, system, ItemStack, MolangVariableMap, CommandPermissionLevel, CustomCommandParamType, CustomCommandStatus } from "@minecraft/server";
+import { world, system, ItemStack, MolangVariableMap, EquipmentSlot, CommandPermissionLevel, CustomCommandParamType, CustomCommandStatus } from "@minecraft/server";
 import { ActionFormData, ModalFormData } from "@minecraft/server-ui";
 import { CONFIG } from "./config.js";
 import { VOICE_CATS, VOICES } from "./voices.js";
@@ -44,6 +44,8 @@ const S = {
   style: new Map(), // แบบที่ผู้เล่นคนนั้น "เห็น" สัญลักษณ์ของทุกคน (เห็นแค่ตัวเอง)
   side: new Map(), // แจ้งเตือนข้างจอ เปิด/ปิด (ค่าเริ่มต้น ปิด)
   selfDeaf: new Set(), // ปิดหูตัวเอง
+  holdAll: false, // แอดมินบังคับ: ทุกคนต้องถือไอเท็มไมค์ถึงพูดได้
+  holdSelf: new Set(), // ผู้เล่นที่เปิดโหมดถือไมค์เอง (สายโรล)
   defStyle: 0, // สัญลักษณ์เริ่มต้นของเซิฟ
 };
 let announceQueue = [];
@@ -71,7 +73,7 @@ function save() {
         muted: [...S.muted], deaf: [...S.deaf], mega: [...S.mega], self: [...S.self],
         vfx: Object.fromEntries(S.vfx),
         prange: Object.fromEntries(S.prange),
-        style: Object.fromEntries(S.style), side: Object.fromEntries(S.side), selfDeaf: [...S.selfDeaf], defStyle: S.defStyle,
+        style: Object.fromEntries(S.style), side: Object.fromEntries(S.side), selfDeaf: [...S.selfDeaf], defStyle: S.defStyle, holdAll: S.holdAll, holdSelf: [...S.holdSelf],
       })
     );
   } catch (e) { console.warn("[MCVoice] save failed " + e); }
@@ -88,6 +90,8 @@ function load() {
     if (o.style && typeof o.style === "object") S.style = new Map(Object.entries(o.style).map(([k, v]) => [k, Number(v) || 0]));
     if (o.side && typeof o.side === "object") S.side = new Map(Object.entries(o.side).map(([k, v]) => [k, !!v]));
     if (Array.isArray(o.selfDeaf)) S.selfDeaf = new Set(o.selfDeaf);
+    if (typeof o.holdAll === "boolean") S.holdAll = o.holdAll;
+    if (Array.isArray(o.holdSelf)) S.holdSelf = new Set(o.holdSelf);
     if (typeof o.defStyle === "number") S.defStyle = o.defStyle; else if (o.showTalkTag) S.defStyle = 2;
     if (o.prange && typeof o.prange === "object") S.prange = new Map(Object.entries(o.prange).map(([k, v]) => [k, Number(v) || 0]));
     if (o.vfx && typeof o.vfx === "object") S.vfx = new Map(Object.entries(o.vfx).map(([k, v]) => [k, Number(v) || 0]));
@@ -121,7 +125,7 @@ function buildPayload() {
   return {
     secret: CONFIG.secret,
     settings: { range: S.range, micEnabled: S.micEnabled, hearEnabled: S.hearEnabled, stereo: S.stereo, personal: S.personal, falloff: S.falloff },
-    muted: [...S.muted], deaf: [...new Set([...S.deaf, ...S.selfDeaf])], mega: [...S.mega], self: [...S.self],
+    muted: [...S.muted], deaf: [...new Set([...S.deaf, ...S.selfDeaf])], mega: [...S.mega], self: [...new Set([...S.self, ...holdMuted])],
     players,
     claims: [...claims.values()].map((c) => [c.n, c.code]),
     vfx: vfxNow(),
@@ -137,10 +141,19 @@ function buildPayload() {
 const VOICE_BY_ID = new Map(VOICES.map((v) => [v.id, v]));
 const VMAX = Math.max(...VOICES.map((v) => v.id));
 const vfxName = (id) => (VOICE_BY_ID.get(id) || VOICE_BY_ID.get(0)).n;
-// เปลี่ยนเสียงใช้ได้เฉพาะคนที่เป็นแอดมิน (OP) ตอนนี้เท่านั้น
+// สิทธิ์เปลี่ยนเสียง: OP / แท็กแอดมิน / แท็ก "ad" = ทุกเสียง, แท็ก "mic" = เฉพาะ 12 เสียงพื้นฐาน (ชุดเดิม)
+const BASIC_MAX = 12;
+function vfxLevel(p) {
+  try {
+    if (isAdmin(p) || p.hasTag("ad")) return 2;
+    if (p.hasTag("mic")) return 1;
+  } catch {}
+  return 0;
+}
+const vfxAllowed = (lvl, id) => !id || (VOICE_BY_ID.has(id) && (lvl >= 2 || (lvl === 1 && id <= BASIC_MAX)));
 function vfxNow() {
   const out = {};
-  for (const p of world.getAllPlayers()) { const v = S.vfx.get(key(p.name)); if (v && isAdmin(p) && VOICE_BY_ID.has(v)) out[p.name] = v; }
+  for (const p of world.getAllPlayers()) { const v = S.vfx.get(key(p.name)); if (v && vfxAllowed(vfxLevel(p), v)) out[p.name] = v; }
   return out;
 }
 function setVfx(p, v) {
@@ -148,36 +161,39 @@ function setVfx(p, v) {
   if (v) S.vfx.set(k, v); else S.vfx.delete(k);
   save();
   p.sendMessage(`§d[ไมค์] §fเปลี่ยนเสียงเป็น §e${vfxName(v)}§7 (มีผลในแอปภายใน 1-2 วินาที — แอปต้องเป็นรุ่น 2.0 ขึ้นไป)`);
+  if (transport.mode === "world") mirrorState();
   p.playSound("random.orb", { pitch: 1.2 });
 }
 // เมนูเปลี่ยนเสียง: เลือกหมวด → เลือกเสียง
 function vfxForm(p) {
-  if (!isAdmin(p)) return p.sendMessage("§c[ไมค์] เปลี่ยนเสียงได้เฉพาะแอดมิน (OP) เท่านั้น");
+  const lvl = vfxLevel(p);
+  if (!lvl) return p.sendMessage("§c[ไมค์] คุณไม่มีสิทธิ์เปลี่ยนเสียง §7(ต้องมีแท็ก mic หรือ ad หรือเป็นแอดมิน)");
   const cur = S.vfx.get(key(p.name)) || 0;
   const curCat = (VOICE_BY_ID.get(cur) || { c: -1 }).c;
+  const allowed = VOICES.filter((v) => v.id && vfxAllowed(lvl, v.id));
+  const cats = VOICE_CATS.map((c, i) => ({ c, i, n: allowed.filter((v) => v.c === i).length })).filter((x) => x.n);
   const f = new ActionFormData()
-    .title("§l§dเปลี่ยนเสียง §7(แอดมิน)")
-    .body(`เสียงของคุณตอนนี้: §e${vfxName(cur)}§r\nเลือกหมวดเสียง (ทั้งหมด ${VOICES.length - 1} เสียง)`);
+    .title(`§l§dเปลี่ยนเสียง §7(${lvl >= 2 ? "ทุกเสียง" : "เสียงพื้นฐาน"})`)
+    .body(`เสียงของคุณตอนนี้: §e${vfxName(cur)}§r\nเลือกหมวดเสียง (ใช้ได้ ${allowed.length} เสียง)` +
+      (lvl === 1 ? "\n§7แท็ก mic ใช้ได้เฉพาะเสียงพื้นฐาน — แท็ก ad ใช้ได้ทุกเสียง" : ""));
   f.button(cur ? "§aกลับเป็นเสียงปกติ" : "§7เสียงปกติ §8(ใช้อยู่)", UI("mic_on"));
-  VOICE_CATS.forEach((c, i) => {
-    const n = VOICES.filter((v) => v.c === i).length;
-    f.button(`${i === curCat ? "§e▶ " : ""}${c} §8(${n})`, UI(["players", "style", "items", "ear_off", "walls", "admin", "vfx"][i] || "vfx"));
-  });
+  for (const x of cats) f.button(`${x.i === curCat ? "§e▶ " : ""}${x.c} §8(${x.n})`, UI(["players", "style", "items", "ear_off", "walls", "admin", "vfx"][x.i] || "vfx"));
   f.show(p).then((r) => {
     if (r.canceled) return;
     if (r.selection === 0) return setVfx(p, 0);
-    voiceCatForm(p, r.selection - 1);
+    voiceCatForm(p, cats[r.selection - 1].i);
   });
 }
 function voiceCatForm(p, ci) {
-  const cur = S.vfx.get(key(p.name)) || 0;
-  const list = VOICES.filter((v) => v.c === ci);
+  const cur = S.vfx.get(key(p.name)) || 0, lvl = vfxLevel(p);
+  const list = VOICES.filter((v) => v.c === ci && v.id && vfxAllowed(lvl, v.id));
   const f = new ActionFormData().title(`§l§d${VOICE_CATS[ci]}`).body("แตะเพื่อใช้เสียงนั้นทันที");
   for (const v of list) f.button(v.id === cur ? `§a✔ ${v.n} §8(ใช้อยู่)` : v.n, UI("vfx"));
   f.button("« กลับ", UI("back"));
   f.show(p).then((r) => {
     if (r.canceled) return;
     if (r.selection === list.length) return vfxForm(p);
+    if (!vfxAllowed(vfxLevel(p), list[r.selection].id)) return p.sendMessage("§c[ไมค์] คุณไม่มีสิทธิ์ใช้เสียงนี้");
     setVfx(p, list[r.selection].id);
   });
 }
@@ -283,7 +299,8 @@ function mirrorPlayer(p) {
   if (transport.mode !== "world") return;
   const k = key(p.name);
   const deafAll = new Set([...S.deaf, ...S.selfDeaf]);
-  for (const [set, tag] of [[S.muted, "astra_muted"], [deafAll, "astra_deaf"], [S.mega, "astra_mega"], [S.self, "astra_self"]]) {
+  const selfAll = new Set([...S.self, ...holdMuted]);
+  for (const [set, tag] of [[S.muted, "astra_muted"], [deafAll, "astra_deaf"], [S.mega, "astra_mega"], [selfAll, "astra_self"]]) {
     try { if (set.has(k)) p.addTag(tag); else p.removeTag(tag); } catch { /* ignore */ }
   }
 }
@@ -419,11 +436,64 @@ function giveItem(p, id) {
   if (left) p.dimension.spawnItem(left, p.location);
 }
 
-function toggleSelfMic(p) {
+// ---------------- โหมดถือไมค์ถึงพูด (สายโรล) ----------------
+// เปิดได้ 2 แบบ: ผู้เล่นเปิดเอง หรือแอดมินบังคับทั้งเซิฟ — ไม่ได้ถือไอเท็มไมค์ (มือขวาหรือมือซ้าย) = ไมค์ปิด
+const holdMuted = new Set();
+const holdNeed = (k) => S.holdAll || S.holdSelf.has(k);
+function holdsMic(p) {
+  try {
+    const eq = p.getComponent("minecraft:equippable");
+    if (eq) {
+      if (eq.getEquipment(EquipmentSlot.Offhand)?.typeId === MIC_ITEM) return true;
+      if (eq.getEquipment(EquipmentSlot.Mainhand)?.typeId === MIC_ITEM) return true;
+    }
+  } catch {}
+  try { return p.getComponent("minecraft:inventory")?.container?.getItem(p.selectedSlotIndex)?.typeId === MIC_ITEM; } catch {}
+  return false;
+}
+function hasMicItem(p) {
+  if (holdsMic(p)) return true;
+  try { const c = p.getComponent("minecraft:inventory")?.container; for (let i = 0; i < c.size; i++) if (c.getItem(i)?.typeId === MIC_ITEM) return true; } catch {}
+  return false;
+}
+function updateHold() {
+  for (const p of world.getAllPlayers()) {
+    const k = key(p.name);
+    const muted = holdNeed(k) && !holdsMic(p);
+    if (muted === holdMuted.has(k)) continue;
+    if (muted) holdMuted.add(k); else holdMuted.delete(k);
+    mirrorPlayer(p);
+    try {
+      if (!S.self.has(k)) p.onScreenDisplay.setActionBar(muted ? "§7● เก็บไมค์แล้ว — ไมค์ปิด" : "§a● ถือไมค์อยู่ — พูดได้");
+    } catch {}
+  }
+  for (const k of [...holdMuted]) if (!holdNeed(k)) holdMuted.delete(k);
+}
+function setHoldSelf(p, on) {
+  const k = key(p.name);
+  if (on) S.holdSelf.add(k); else S.holdSelf.delete(k);
+  save();
+  if (on && !hasMicItem(p)) giveItem(p, MIC_ITEM);
+  p.sendMessage(on ? "§a[ไมค์] เปิดโหมดถือไมค์ — ถือไอเท็มไมค์ (มือขวาหรือมือซ้าย) ถึงพูดได้ §7ไอเท็มจะมองไม่เห็นตอนถือ"
+    : (S.holdAll ? "§e[ไมค์] ปิดโหมดของคุณแล้ว แต่แอดมินยังบังคับโหมดถือไมค์ทั้งเซิฟอยู่" : "§a[ไมค์] ปิดโหมดถือไมค์ — พูดได้ตามปกติ"));
+  updateHold();
+}
+function setHoldAll(p, on) {
+  S.holdAll = on; save();
+  if (on) for (const pl of world.getAllPlayers()) if (!hasMicItem(pl)) giveItem(pl, MIC_ITEM);
+  for (const pl of world.getAllPlayers()) pl.sendMessage(on ? "§e[ไมค์] แอดมินเปิดโหมดถือไมค์ทั้งเซิฟ — ต้องถือไอเท็มไมค์ (มือขวาหรือมือซ้าย) ถึงจะพูดได้" : "§a[ไมค์] แอดมินปิดโหมดถือไมค์แล้ว — พูดได้ตามปกติ");
+  updateHold();
+}
+
+function toggleSelfMic(p, fromMenu) {
   const k = key(p.name);
   const now = system.currentTick;
   if (now - (lastToggle.get(k) ?? -99) < 8) return; // กันกดเบิ้ล (มือถือ)
   lastToggle.set(k, now);
+  if (!fromMenu && holdNeed(k) && !S.self.has(k)) { // โหมดถือไมค์: ถือ = พูด, เก็บ = เงียบ (ไม่ต้องกดสลับ)
+    p.onScreenDisplay.setActionBar("§e● โหมดถือไมค์: ถืออยู่ = พูดได้ • เก็บเข้ากระเป๋า = ไมค์ปิด §7(ย่อ+ใช้ = เมนู)");
+    return;
+  }
   if (S.self.has(k)) S.self.delete(k); else S.self.add(k);
   save();
   const on = !S.self.has(k);
@@ -455,15 +525,16 @@ function openPlayerMenu(p) {
     .button(S.selfDeaf.has(k) ? "§aเปิดหู §8(ตอนนี้ปิดหูอยู่)" : "§cปิดหูตัวเอง", UI(S.selfDeaf.has(k) ? "ear_off" : "ear_on"))
     .button(`ระยะเสียงของฉัน: §e${S.prange.get(k) ? Math.min(S.prange.get(k), S.range) + " บล็อค" : "เต็ม (" + S.range + ")"}`, UI("range"))
     .button(`การแสดงสัญลักษณ์ไมค์: §e${STYLES[styleOf(k)]}\n§8แจ้งเตือนข้างจอ: ${sideOf(k) ? "§aเปิด" : "§cปิด"} §8(เห็นแค่คุณ)`, UI("style"));
-  if (isAdmin(p)) f.button("§6แผงแอดมิน", UI("admin"));
+  const acts = [() => { lastToggle.delete(k); toggleSelfMic(p, true); },
+    () => toggleSelfDeaf(p), () => myRangeForm(p), () => styleForm(p)];
+  f.button(`โหมดถือไมค์ถึงพูด: ${S.holdAll ? "§eแอดมินบังคับเปิด" : onoff(S.holdSelf.has(k))}\n§8ถือไอเท็มไมค์ = พูด • เก็บ = เงียบ`, UI("items"));
+  acts.push(() => setHoldSelf(p, !S.holdSelf.has(k)));
+  if (vfxLevel(p) && !isAdmin(p)) { f.button(`§dเปลี่ยนเสียง §8(${vfxName(S.vfx.get(k) || 0)})`, UI("vfx")); acts.push(() => vfxForm(p)); }
+  if (isAdmin(p)) { f.button("§6แผงแอดมิน", UI("admin")); acts.push(() => openAdmin(p)); }
   f.button("ปิด", UI("close"));
   f.show(p).then((r) => {
-    if (r.canceled) return;
-    if (r.selection === 0) { lastToggle.delete(k); toggleSelfMic(p); }
-    else if (r.selection === 1) toggleSelfDeaf(p);
-    else if (r.selection === 2) myRangeForm(p);
-    else if (r.selection === 3) styleForm(p);
-    else if (r.selection === 4 && isAdmin(p)) openAdmin(p);
+    if (r.canceled || r.selection >= acts.length) return;
+    acts[r.selection]();
   });
 }
 
@@ -569,6 +640,7 @@ function openAdmin(p) {
     .button("รับไอเท็มไมค์ / แจกทุกคน", UI("items"))
     .button(`§dเปลี่ยนเสียง §8(ของคุณ: ${vfxName(S.vfx.get(key(p.name)) || 0)})`, UI("vfx"))
     .button(`§9กำแพงกั้นเสียง & เอฟเฟกต์\n§8ผนัง: ${S.occEnabled ? "§aเปิด" : "§cปิด"} §8• ใต้น้ำ: ${S.waterEnabled ? "§aเปิด" : "§cปิด"}`, UI("walls"))
+    .button(`โหมดถือไมค์ถึงพูด (ทั้งเซิฟ): ${onoff(S.holdAll)}\n§8ต้องถือไอเท็มไมค์ถึงจะพูดได้`, UI("items"))
     .show(p)
     .then((r) => {
       if (r.canceled) return;
@@ -584,6 +656,7 @@ function openAdmin(p) {
         case 6: return giveMenu(p);
         case 7: return vfxForm(p);
         case 8: return fxForm(p);
+        case 9: return setHoldAll(p, !S.holdAll);
       }
     });
 }
@@ -808,7 +881,7 @@ system.beforeEvents.startup.subscribe((ev) => {
     return { status: CustomCommandStatus.Success };
   });
   reg.registerCommand({
-    name: "astra:vfx", description: "เปลี่ยนเสียง (เฉพาะแอดมิน/OP)",
+    name: "astra:vfx", description: "เปลี่ยนเสียง (แท็ก mic = เสียงพื้นฐาน, แท็ก ad / OP = ทุกเสียง)",
     permissionLevel: CommandPermissionLevel.Any, cheatsRequired: false,
   }, (origin) => {
     const p = origin.sourceEntity;
@@ -854,6 +927,7 @@ export function startCore(t) {
     mirrorState();
     transport.start(core);
     system.runInterval(drawIndicators, 3);
+    system.runInterval(updateHold, 2);
     system.runInterval(updateSide, 10);
     system.runInterval(updateEnv, 5);
     system.runInterval(drawRings, 3);

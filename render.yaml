@@ -2,6 +2,7 @@ services:
   - type: web
     name: astranova-hub
     runtime: node
+    branch: hub
     plan: free
     region: singapore
     rootDir: server
